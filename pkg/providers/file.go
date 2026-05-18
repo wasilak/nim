@@ -87,6 +87,7 @@ func (p *FileProvider) Reconcile(ctx context.Context,
 			// For any addition where a destination already exists on disk, emit a
 			// PlanWarning so the user is informed and can choose to import the
 			// existing resource into state instead of blindly overwriting.
+			// Also check if parent directories will need to be created.
 			for _, it := range group.Items {
 				dest := ""
 				if it.FileExtra != nil {
@@ -95,6 +96,7 @@ func (p *FileProvider) Reconcile(ctx context.Context,
 				if dest == "" {
 					dest = it.Name
 				}
+				dest = p.resolveDest(dest)
 				if _, err := os.Stat(dest); err == nil {
 					plan.Warnings = append(plan.Warnings, provider.PlanWarning{
 						GroupID:    group.Kind + "/" + group.Name,
@@ -108,20 +110,55 @@ func (p *FileProvider) Reconcile(ctx context.Context,
 						}},
 					})
 				}
+				// Check if parent directory will be created
+				parentDir := filepath.Dir(dest)
+				if parentDir != "" && parentDir != "." {
+					if _, err := os.Stat(parentDir); os.IsNotExist(err) {
+						plan.Warnings = append(plan.Warnings, provider.PlanWarning{
+							GroupID:  group.Kind + "/" + group.Name,
+							ItemID:   it.Name,
+							Severity: "info",
+							Message:  fmt.Sprintf("Will create parent directory %s", parentDir),
+						})
+					}
+				}
 			}
 		} else {
 			// Existing group - compare items
 			additions, removals, modifications, inSync := p.compareGroupItems(group, stateGroup)
 
-			if len(additions) > 0 {
-				plan.Additions = append(plan.Additions, provider.GroupAddition{
-					Kind:  group.Kind,
-					Group: group.Name,
-					Items: additions,
-				})
-			}
+		if len(additions) > 0 {
+			plan.Additions = append(plan.Additions, provider.GroupAddition{
+				Kind:  group.Kind,
+				Group: group.Name,
+				Items: additions,
+			})
 
-			if len(removals) > 0 {
+			// Check for directory creation needed for additions to existing groups
+			for _, it := range additions {
+				dest := ""
+				if it.FileExtra != nil {
+					dest = it.FileExtra.Destination
+				}
+				if dest == "" {
+					dest = it.Name
+				}
+				dest = p.resolveDest(dest)
+				parentDir := filepath.Dir(dest)
+				if parentDir != "" && parentDir != "." {
+					if _, err := os.Stat(parentDir); os.IsNotExist(err) {
+						plan.Warnings = append(plan.Warnings, provider.PlanWarning{
+							GroupID:  group.Kind + "/" + group.Name,
+							ItemID:   it.Name,
+							Severity: "info",
+							Message:  fmt.Sprintf("Will create parent directory %s", parentDir),
+						})
+					}
+				}
+			}
+		}
+
+		if len(removals) > 0 {
 				plan.Removals = append(plan.Removals, provider.GroupRemoval{
 					Kind:  group.Kind,
 					Group: group.Name,

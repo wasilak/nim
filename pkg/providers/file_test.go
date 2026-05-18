@@ -144,6 +144,233 @@ func stateWithItem(kind, group, name, checksum string) []provider.ResourceState 
 	}}
 }
 
+func TestFileProvider_Apply_CreatesMissingDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	// Nested path where parent directories don't exist
+	dest := filepath.Join(tmp, "deeply", "nested", "path", "file.txt")
+	p := NewFileProvider(tmp)
+
+	addition := resource.ResourceItem{
+		Name: dest,
+		FileExtra: &resource.FileItemExtra{
+			Source:      "(inline)",
+			Inline:      "hello world",
+			Destination: dest,
+			Mode:        "0644",
+		},
+	}
+	results := p.applyGroupAddition(context.Background(), groupAdditionFrom(addition))
+	for _, r := range results {
+		if r.Err != nil {
+			t.Fatalf("applyGroupAddition: %v", r.Err)
+		}
+	}
+
+	// Verify file was created
+	content, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(content) != "hello world" {
+		t.Errorf("content = %q, want %q", string(content), "hello world")
+	}
+
+	// Verify all parent directories were created
+	dir := filepath.Dir(dest)
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("parent directory not created: %v", err)
+	}
+}
+
+func TestFileProvider_Apply_IdempotentDirectoryCreation(t *testing.T) {
+	tmp := t.TempDir()
+	dest := filepath.Join(tmp, "existing", "path", "file.txt")
+	p := NewFileProvider(tmp)
+
+	// First apply - creates directories and file
+	addition := resource.ResourceItem{
+		Name: dest,
+		FileExtra: &resource.FileItemExtra{
+			Source:      "(inline)",
+			Inline:      "first write",
+			Destination: dest,
+			Mode:        "0644",
+		},
+	}
+	results1 := p.applyGroupAddition(context.Background(), groupAdditionFrom(addition))
+	for _, r := range results1 {
+		if r.Err != nil {
+			t.Fatalf("first apply: %v", r.Err)
+		}
+	}
+
+	// Second apply to same path - should not error
+	addition.FileExtra.Inline = "second write"
+	results2 := p.applyGroupAddition(context.Background(), groupAdditionFrom(addition))
+	for _, r := range results2 {
+		if r.Err != nil {
+			t.Fatalf("second apply: %v", r.Err)
+		}
+	}
+
+	// Verify content was updated
+	content, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(content) != "second write" {
+		t.Errorf("content = %q, want %q", string(content), "second write")
+	}
+}
+
+func TestFileProvider_Apply_HomeDirectoryDestination(t *testing.T) {
+	// This test verifies that destinations starting with ~ are handled correctly
+	// The directory creation should happen after path expansion
+	tmp := t.TempDir()
+	p := NewFileProvider(tmp)
+
+	// Use a path that looks like a home directory path but in temp
+	homeDir := tmp
+	dest := filepath.Join(homeDir, ".config", "test", "file.txt")
+	addition := resource.ResourceItem{
+		Name: dest,
+		FileExtra: &resource.FileItemExtra{
+			Source:      "(inline)",
+			Inline:      "config content",
+			Destination: dest,
+			Mode:        "0644",
+		},
+	}
+	results := p.applyGroupAddition(context.Background(), groupAdditionFrom(addition))
+	for _, r := range results {
+		if r.Err != nil {
+			t.Fatalf("apply: %v", r.Err)
+		}
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(dest); err != nil {
+		t.Errorf("file not created: %v", err)
+	}
+}
+
+func TestFileProvider_Apply_DirectoryCreationError(t *testing.T) {
+	// Test that directory creation errors are properly wrapped
+	tmp := t.TempDir()
+	p := NewFileProvider(tmp)
+
+	// Create a file where we want a directory to be
+	// This should cause mkdir to fail
+	blockingPath := filepath.Join(tmp, "blocking")
+	if err := os.WriteFile(blockingPath, []byte("x"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// Try to create a file under the blocking file (impossible)
+	dest := filepath.Join(blockingPath, "file.txt")
+	addition := resource.ResourceItem{
+		Name: dest,
+		FileExtra: &resource.FileItemExtra{
+			Source:      "(inline)",
+			Inline:      "content",
+			Destination: dest,
+			Mode:        "0644",
+		},
+	}
+	results := p.applyGroupAddition(context.Background(), groupAdditionFrom(addition))
+
+	// Should have an error
+	if len(results) == 0 || results[0].Err == nil {
+		t.Fatal("expected error when directory creation blocked, got none")
+	}
+
+	// Error should mention the parent directory
+	errMsg := results[0].Err.Error()
+	if !strings.Contains(errMsg, "parent directory") {
+		t.Errorf("error message should mention 'parent directory', got: %v", errMsg)
+	}
+}
+
+func TestFileProvider_Reconcile_EmitsInfoForDirectoryCreation(t *testing.T) {
+	tmp := t.TempDir()
+	// Create a nested path that doesn't exist
+	dest := filepath.Join(tmp, "new", "nested", "path", "file.txt")
+
+	item := resource.ResourceItem{
+		Name: "testfile",
+		FileExtra: &resource.FileItemExtra{
+			Source:      "(inline)",
+			Inline:      "test content",
+			Destination: dest,
+			Mode:        "0644",
+		},
+	}
+	group := resource.ResourceGroup[any]{
+		Kind:  "ManagedFile",
+		Name:  "myfiles",
+		Items: []resource.ResourceItem{item},
+	}
+
+	p := NewFileProvider("")
+	plan := p.Reconcile(context.Background(), []resource.ResourceGroup[any]{group}, nil)
+
+	// Should have an addition
+	if len(plan.Additions) == 0 {
+		t.Fatalf("expected additions, got none")
+	}
+
+	// Should have an info warning about directory creation
+	var foundDirInfo bool
+	for _, w := range plan.Warnings {
+		if w.Severity == "info" && strings.Contains(w.Message, "Will create parent directory") {
+			foundDirInfo = true
+			// Verify the path is mentioned
+			if !strings.Contains(w.Message, filepath.Dir(dest)) {
+				t.Errorf("warning message missing expected directory path: %v", w.Message)
+			}
+			break
+		}
+	}
+	if !foundDirInfo {
+		t.Errorf("expected info warning about directory creation, got warnings: %+v", plan.Warnings)
+	}
+}
+
+func TestFileProvider_Reconcile_NoDirInfoForExistingDir(t *testing.T) {
+	tmp := t.TempDir()
+	// Create the parent directory
+	existingDir := filepath.Join(tmp, "existing")
+	if err := os.MkdirAll(existingDir, 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	dest := filepath.Join(existingDir, "file.txt")
+
+	item := resource.ResourceItem{
+		Name: "testfile",
+		FileExtra: &resource.FileItemExtra{
+			Source:      "(inline)",
+			Inline:      "test content",
+			Destination: dest,
+			Mode:        "0644",
+		},
+	}
+	group := resource.ResourceGroup[any]{
+		Kind:  "ManagedFile",
+		Name:  "myfiles",
+		Items: []resource.ResourceItem{item},
+	}
+
+	p := NewFileProvider("")
+	plan := p.Reconcile(context.Background(), []resource.ResourceGroup[any]{group}, nil)
+
+	// Should NOT have an info warning about directory creation
+	for _, w := range plan.Warnings {
+		if w.Severity == "info" && strings.Contains(w.Message, "Will create parent directory") {
+			t.Errorf("unexpected directory creation warning for existing dir: %v", w.Message)
+		}
+	}
+}
+
 func TestFileProvider_Reconcile_EmitsWarningForExistingDestination(t *testing.T) {
 	tmp := t.TempDir()
 	dest := filepath.Join(tmp, ".zshrc")
