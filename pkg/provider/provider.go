@@ -57,6 +57,9 @@ type GroupPlan struct {
 
 	// Skipped are groups that were not applied because a dependency failed.
 	Skipped []GroupSkip
+
+	// Errors are non-fatal errors encountered during reconcile
+	Errors []error
 }
 
 // GroupAddition represents items to add within a resource group
@@ -65,6 +68,7 @@ type GroupAddition struct {
 	Group    string
 	Items    []resource.ResourceItem
 	Contents map[string]string // item name → content (for additions, when diff enabled)
+	RawSpec  any               // provider-specific spec data (e.g., ManagedFilePartialSpec)
 }
 
 // GroupModification represents changes within an existing group
@@ -72,6 +76,7 @@ type GroupModification struct {
 	Kind    string
 	Group   string
 	Changes []ItemChange
+	RawSpec any // provider-specific spec data (e.g., ManagedFilePartialSpec)
 }
 
 // ItemChange represents a change to a specific item
