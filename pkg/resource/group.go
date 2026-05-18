@@ -17,6 +17,7 @@ type ResourceItem struct {
 	Checksum  string
 	FileExtra *FileItemExtra    // non-nil only for ManagedFile items
 	Metadata  map[string]string // provider-specific item metadata
+	Notes     string            // post-apply notes to display (only for changed resources)
 }
 
 // ItemState represents the state of an individual item
@@ -26,6 +27,7 @@ type ItemState struct {
 	Checksum  string         `json:"checksum,omitempty"`
 	Status    string         `json:"status,omitempty"` // present, absent, etc.
 	FileExtra *FileItemExtra `json:"extra,omitempty"`  // json key "extra" preserves existing state-file format
+	Notes     string         `json:"notes,omitempty"`  // post-apply notes
 }
 
 // ToGroup is a convenience helper for resources that carry no provider-specific spec.

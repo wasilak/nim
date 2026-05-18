@@ -90,6 +90,10 @@ func (e *Engine) Apply(ctx context.Context, result *PlanResult, opts ApplyOption
 	type kindGroup struct{ kind, group string }
 	succeededItems := make(map[string]bool)
 
+	// changedItemsWithNotes tracks items that were changed (added or modified) and have notes.
+	// Keyed by "kind/group/itemName" with the notes value.
+	changedItemsWithNotes := make(map[string]string)
+
 	// parseNodeID splits a NodeID of the form "Kind/Group" into its two parts.
 	parseNodeID := func(id graph.NodeID) (kind, group string) {
 		s := string(id)
@@ -208,6 +212,25 @@ func (e *Engine) Apply(ctx context.Context, result *PlanResult, opts ApplyOption
 				ok = false
 			} else {
 				succeededItems[fmt.Sprintf("%s/%s/%s", r.Kind, r.Group, r.Item)] = true
+
+				// Check if this item was changed (addition or modification) and has notes
+				itemKey := fmt.Sprintf("%s/%s/%s", r.Kind, r.Group, r.Item)
+				for _, a := range groupPlan.Additions {
+					for _, it := range a.Items {
+						if it.Name == r.Item && it.Notes != "" {
+							changedItemsWithNotes[itemKey] = it.Notes
+							break
+						}
+					}
+				}
+				for _, m := range groupPlan.Modifications {
+					for _, c := range m.Changes {
+						if c.ItemName == r.Item && c.NewState.Notes != "" {
+							changedItemsWithNotes[itemKey] = c.NewState.Notes
+							break
+						}
+					}
+				}
 			}
 		}
 		return ok
@@ -314,6 +337,7 @@ func (e *Engine) Apply(ctx context.Context, result *PlanResult, opts ApplyOption
 					Version:  item.Version,
 					Status:   "present",
 					Checksum: checksum,
+					Notes:    item.Notes,
 				})
 			}
 			if len(items) > 0 {
@@ -366,7 +390,7 @@ func (e *Engine) Apply(ctx context.Context, result *PlanResult, opts ApplyOption
 						Kind:  modification.Kind,
 						Group: modification.Group,
 						Items: []resource.ItemState{
-							{Name: change.ItemName, Version: "", Checksum: checksum, Status: "present"},
+							{Name: change.ItemName, Version: "", Checksum: checksum, Status: "present", Notes: change.NewState.Notes},
 						},
 					})
 				}
@@ -455,6 +479,25 @@ func (e *Engine) Apply(ctx context.Context, result *PlanResult, opts ApplyOption
 		}
 		// Return simple error indicator - details already shown
 		return fmt.Errorf("apply completed with %d error(s)", len(failures))
+	}
+
+	// Print notes from changed items (Homebrew-style caveats)
+	if len(changedItemsWithNotes) > 0 {
+		fmt.Println()
+		fmt.Println(style.Info.Render("┌─ Notes "))
+		for itemKey, notes := range changedItemsWithNotes {
+			// itemKey is "kind/group/itemName"
+			parts := strings.Split(itemKey, "/")
+			if len(parts) == 3 {
+				fmt.Printf("│\n│  %s:\n", style.Bold.Render(parts[0]+"/"+parts[1]+"["+parts[2]+"]"))
+				// Indent notes properly
+				lines := strings.Split(notes, "\n")
+				for _, line := range lines {
+					fmt.Printf("│    %s\n", line)
+				}
+			}
+		}
+		fmt.Println(style.Info.Render("└─────────────────────────────────────────"))
 	}
 
 	// Success path: notify via OnMessage when available for spinner UI.

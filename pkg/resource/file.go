@@ -58,6 +58,11 @@ type ManagedFileSpec struct {
 	// when template: true is set. Values here take precedence over nothing — they are
 	// additive alongside .Values, .Env, and .OS.
 	Vars map[string]any `yaml:"vars,omitempty"`
+
+	// Notes is an optional message to display after the resource is applied.
+	// Use this for post-install caveats or reminders (like Homebrew caveats).
+	// Notes are only displayed when a resource is created or modified.
+	Notes string `yaml:"notes,omitempty"`
 }
 
 // GeneratorSpec defines how to generate multiple files from a values list.
@@ -202,7 +207,8 @@ func (r ManagedFile) ToGroup() ResourceGroup[any] {
 		}
 
 		items = append(items, ResourceItem{
-			Name: itemName,
+			Name:  itemName,
+			Notes: r.Spec.Notes, // Copy notes from spec to each item
 			FileExtra: &FileItemExtra{
 				Source:      source,
 				Inline:      inline,
