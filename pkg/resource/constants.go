@@ -10,6 +10,7 @@ const (
 	KindCargoPackages    = "CargoPackages"
 	KindManagedFile      = "ManagedFile"
 	KindAISkillPackages  = "AISkillPackages"
+	KindManagedFilePartial = "ManagedFilePartial"
 )
 
 // IsBrewKind reports whether the provided kind corresponds to the

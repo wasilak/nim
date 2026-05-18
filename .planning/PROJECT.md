@@ -2,11 +2,11 @@
 
 ## What This Is
 
-Nim is a declarative dotfiles and machine configuration manager for personal use. It reads YAML resource manifests, computes a diff against persisted state, and applies changes through typed providers — bringing Terraform's plan/apply workflow to dotfiles. The current milestone adds **namespace support**, enabling different sets of resources on different machines (e.g. work vs. personal).
+Nim is a declarative dotfiles and machine configuration manager for personal use. It reads YAML resource manifests, computes a diff against persisted state, and applies changes through typed providers — bringing Terraform's plan/apply workflow to dotfiles. The current milestone (v0.16.0) adds four quality-of-life improvements: automatic directory creation, post-apply caveats, partial YAML/JSON file management, and process locking.
 
 ## Core Value
 
-A user can safely apply a different set of resources on each machine without duplicating manifests, by declaring a namespace on any resource and setting the active namespace via env var or CLI flag.
+A user can manage their dotfiles declaratively — with safe plan/apply previews, namespace-scoped machine profiles, and robust file handling — without duplicating manifests or risking concurrent mutations.
 
 ## Requirements
 
@@ -19,51 +19,54 @@ A user can safely apply a different set of resources on each machine without dup
 - ✓ Two-pass Go template rendering (values.yaml + env vars, Sprig functions) — Phase 1
 - ✓ Local JSON and S3-compatible state backends — Phase 1
 - ✓ `--target` flag with `/pattern/` regex support — Phase 1
+- ✓ `metadata.namespace` on resource manifests with regex matching — v0.15.0
+- ✓ Active namespace resolved from `NIM_NAMESPACE` env var or `--namespace` flag — v0.15.0
+- ✓ `{{ .Namespace }}` in template context for conditional rendering — v0.15.0
 
 ### Active
 
-- [ ] Namespace field on resource manifests (`metadata.namespace`) — single regex value matching one or more namespaces
-- [ ] Active namespace resolved from `NIM_NAMESPACE` env var or `--namespace` CLI flag; defaults to `"default"` when unset
-- [ ] Resources with no `metadata.namespace` field implicitly belong to the `"default"` namespace
-- [ ] Resources whose `metadata.namespace` regex matches the active namespace string are included in plan/apply
-- [ ] `{{ .Namespace }}` available as a Go template variable for conditional content within template files
-- [ ] Namespace filtering applied before DAG construction and plan diffing
+- [ ] ManagedFile provider creates all parent directories automatically before writing a file
+- [ ] All resource kinds support a `spec.notes` field (caveats); notes are printed after a successful `nim apply`
+- [ ] New resource kind `ManagedFilePartial` manages a subset of keys in an existing JSON or YAML file without touching other keys
+- [ ] `nim plan` and `nim apply` acquire a process-level lock on startup; a second invocation prints a friendly error and exits immediately
 
 ### Out of Scope
 
-- Multiple simultaneous active namespaces — only one namespace is active per nim invocation; use regex on resource side to express multi-namespace membership
-- Namespace-specific state backends — state is shared across namespaces; namespace is a filter, not a partition
-- Hostname-based auto-detection — user controls the active namespace explicitly via env/flag, not via hostname matching (hostname regex was considered but rejected in favour of explicit control)
-- GUI/TUI for managing namespaces — CLI only
+- Multiple simultaneous active namespaces — one namespace active per invocation
+- Namespace-scoped state backends — state is shared; namespace is a filter
+- Hostname-based auto-detection — explicit `NIM_NAMESPACE` is more predictable
+- Full JSON/YAML file ownership via `ManagedFilePartial` — only declared keys are managed; all other keys are preserved
+- Recursive partial management (nested key paths beyond top-level keys) — flat key list only for v0.16.0
 
 ## Context
 
-**Existing codebase state:**
-- Config loading and two-pass template rendering lives in `pkg/config/` — this is where `.Namespace` injection belongs
-- Engine (`pkg/engine/plan.go`, `pkg/engine/apply.go`) loads all resources then diffs/applies — namespace filtering must happen before resources reach the engine
-- Resource YAML is parsed into `resource.Resource` structs; `metadata` fields already include `name`, `dependsOn`, etc. — `namespace` extends this struct
-- Template context is currently the rendered `values.yaml` map — `.Namespace` needs to be merged in at the same level
+**Existing codebase state (post v0.15.0):**
+- `pkg/providers/file.go` — ManagedFile provider; does not currently create parent dirs
+- `pkg/engine/apply.go` — apply loop; good place to collect and print post-apply notes
+- `pkg/resource/resource.go` — Resource struct; notes field needs to be added to the base or per-kind spec
+- No existing locking mechanism; `cmd/root.go` or `cmd/plan_apply.go` is the right acquisition point
+- `pkg/providers/` — provider registry; new `ManagedFilePartial` provider goes here
 
-**Known concerns to keep in mind (not in scope for this milestone):**
-- Non-atomic state writes in `pkg/state/local.go` (separate fix)
-- AISkillProvider idempotency bug (separate fix)
+**Known concerns carried forward (not in scope):**
+- Non-atomic state writes in `pkg/state/local.go`
+- AISkillProvider idempotency bug
 
 ## Constraints
 
-- **Compatibility**: Resources with no `metadata.namespace` must continue to work exactly as today when no namespace is set — zero breaking changes for existing dotfiles configs
+- **Compatibility**: Existing manifests with no `spec.notes` or no parent dir must continue to work — zero breaking changes
 - **Tech stack**: Go 1.26, Cobra CLI, Sprig templates — no new dependencies preferred
-- **Testing**: stdlib `testing` only; table-driven tests following existing patterns in `pkg/providers/file_test.go` and `pkg/resource/generator_test.go`
+- **Testing**: stdlib `testing` only; table-driven tests following existing patterns
 - **Architecture**: No `context.Background()` in `pkg/`; wrap all errors with `fmt.Errorf("...: %w", err)`
+- **Partial locking**: Process-based lock preferred over file lock; friendly, colorful error message on contention
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| `metadata.namespace` as single regex field | Supports multi-namespace membership via `/(work\|personal)/` without YAML list complexity | — Pending |
-| Active namespace defaults to `"default"` when unset | Backward compatible — existing resources (no namespace) implicitly become "default" and keep working | — Pending |
-| ENV var `NIM_NAMESPACE` + `--namespace` flag | Standard 12-factor pattern; env for machine-level default, flag for ad-hoc override | — Pending |
-| `.Namespace` in template context | Enables conditional content in dotfile templates without external tooling | — Pending |
-| Hostname auto-detection excluded | Explicit control is predictable; hostname matching can be emulated via NIM_NAMESPACE set in shell profile | — Pending |
+| `spec.notes` on all resource kinds | Consistent UX — any resource can have a caveat, not just packages | — Pending |
+| Notes printed after successful apply only | Avoids noise on dry-run plan output | — Pending |
+| `ManagedFilePartial` as new kind (not extending ManagedFile) | Clean separation — full ownership vs. partial ownership have different semantics | — Pending |
+| Process lock at CLI entry point (cmd/) not in pkg/ | Lock is a CLI concern; library code stays lock-agnostic | — Pending |
 
 ## Evolution
 
@@ -83,4 +86,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-16 after initialization*
+*Last updated: 2026-05-18 — new milestone v0.16.0*

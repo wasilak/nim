@@ -28,7 +28,8 @@
       "Bash(go list *)",
       "Skill(gsd-plan-phase)",
       "Bash(gsd-sdk query *)",
-      "Bash(gsd-sdk help *)"
+      "Bash(gsd-sdk help *)",
+      "Bash(nim version *)"
     ]
   }
 }
