@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/wasilak/nim/pkg/engine"
+	"github.com/wasilak/nim/pkg/lock"
 	"github.com/wasilak/nim/pkg/output"
 	"github.com/wasilak/nim/pkg/style"
 	"github.com/wasilak/nim/pkg/ui"
@@ -25,6 +26,28 @@ func runPlanApply(ctx context.Context, opts PlanApplyOptions) error {
 	if ctx == nil {
 		return fmt.Errorf("internal: context is nil")
 	}
+
+	// Acquire process lock to prevent concurrent nim invocations
+	holdingPID, err := lock.Acquire()
+	if err != nil {
+		// Another nim process is running - print friendly error
+		fmt.Println()
+		fmt.Println(style.Error.Render("╔══════════════════════════════════════════════════════════════╗"))
+		fmt.Println(style.Error.Render("║  ERROR                                                       ║"))
+		fmt.Println(style.Error.Render("╚══════════════════════════════════════════════════════════════╝"))
+		fmt.Println()
+		fmt.Println("Another nim process is already running.")
+		fmt.Println()
+		fmt.Printf("  %s: %d\n", style.Bold.Render("PID"), holdingPID)
+		fmt.Println()
+		fmt.Println("Wait for it to complete, or terminate it with:")
+		fmt.Printf("  %s\n", style.DimStyle.Render(fmt.Sprintf("kill %d", holdingPID)))
+		fmt.Println()
+		return fmt.Errorf("lock held by process %d", holdingPID)
+	}
+	// Always release lock on exit
+	defer lock.Release()
+
 	eng, err := engine.NewEngine()
 	if err != nil {
 		return fmt.Errorf("failed to initialize: %w", err)
