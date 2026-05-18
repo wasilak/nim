@@ -66,6 +66,11 @@ func NewEngine() (*Engine, error) {
 	providerMap[providerAISkill] = aiSkillProvider
 	provider.Register(providerAISkill, aiSkillProvider, resource.KindAISkillPackages)
 
+	// PartialFileProvider
+	partialFileProvider := providers.NewPartialFileProvider()
+	providerMap[providerPartialFile] = partialFileProvider
+	provider.Register(providerPartialFile, partialFileProvider, resource.KindManagedFilePartial)
+
 	return &Engine{
 		Config:          cfg,
 		TemplateContext: ctx,

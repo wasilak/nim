@@ -89,13 +89,15 @@ func (p *PartialFileProvider) Reconcile(ctx context.Context,
 			}
 		}
 
-		// Build desired key map
+		// Build desired key map (render templates in values)
 		desiredKeys := make(map[string]any)
 		for _, pk := range spec.Keys {
 			desiredKeys[pk.Key] = pk.Value
 		}
 
 		// Determine if change is needed
+		needsUpdate := p.keysNeedUpdate(existingKeys, desiredKeys)
+		
 		if !existsInState && !fileExists {
 			// New file and new resource
 			plan.Additions = append(plan.Additions, provider.GroupAddition{
@@ -104,23 +106,21 @@ func (p *PartialFileProvider) Reconcile(ctx context.Context,
 				Items:   group.Items,
 				RawSpec: spec,
 			})
-		} else if p.keysNeedUpdate(existingKeys, desiredKeys) {
-			// File exists, keys differ
-			// Convert items to state items for modification tracking
-			oldItems := make([]resource.ItemState, 0, len(stateGroup.Items))
-			for _, item := range stateGroup.Items {
-				oldItems = append(oldItems, resource.ItemState{
-					Name:    item.Name,
-					Version: item.Version,
-				})
-			}
-			
-			// Build changes
+		} else if needsUpdate {
+			// File exists, keys differ - need modification
 			var changes []provider.ItemChange
 			for _, item := range group.Items {
+				oldState := resource.ItemState{Name: item.Name}
+				// Try to find old state if exists
+				for _, si := range stateGroup.Items {
+					if si.Name == item.Name {
+						oldState = si
+						break
+					}
+				}
 				changes = append(changes, provider.ItemChange{
 					ItemName: item.Name,
-					OldState: resource.ItemState{Name: item.Name},
+					OldState: oldState,
 					NewState: resource.ItemState{Name: item.Name},
 				})
 			}
@@ -129,6 +129,7 @@ func (p *PartialFileProvider) Reconcile(ctx context.Context,
 				Kind:    group.Kind,
 				Group:   group.Name,
 				Changes: changes,
+				RawSpec: spec,
 			})
 		} else {
 			// No change - add to InSync
@@ -231,18 +232,6 @@ func (p *PartialFileProvider) keysNeedUpdate(existing, desired map[string]any) b
 	return false
 }
 
-// expandPath expands a leading `~` to the user's home directory.
-func expandPath(path string) string {
-	if !strings.HasPrefix(path, "~/") && path != "~" {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	return filepath.Join(home, path[1:])
-}
-
 // applyAddition handles new file creation.
 func (p *PartialFileProvider) applyAddition(addition provider.GroupAddition) []provider.ApplyItemResult {
 	results := make([]provider.ApplyItemResult, 0, len(addition.Items))
@@ -257,45 +246,93 @@ func (p *PartialFileProvider) applyAddition(addition provider.GroupAddition) []p
 		})
 	}
 
+	return p.applySpec(spec, addition.Kind, addition.Group, addition.Items, "add")
+}
+
+// applyModification handles file updates.
+func (p *PartialFileProvider) applyModification(modification provider.GroupModification) []provider.ApplyItemResult {
+	spec, ok := modification.RawSpec.(resource.ManagedFilePartialSpec)
+	if !ok {
+		results := make([]provider.ApplyItemResult, len(modification.Changes))
+		for i := range modification.Changes {
+			results[i] = provider.ApplyItemResult{
+				Kind:  modification.Kind,
+				Group: modification.Group,
+				Op:    "modify",
+				Err:   fmt.Errorf("invalid spec type"),
+			}
+		}
+		return results
+	}
+
+	// Convert changes back to items
+	items := make([]resource.ResourceItem, len(modification.Changes))
+	for i, change := range modification.Changes {
+		items[i] = resource.ResourceItem{Name: change.ItemName}
+	}
+
+	return p.applySpec(spec, modification.Kind, modification.Group, items, "modify")
+}
+
+// applySpec applies the spec to the file (used by both add and modify).
+func (p *PartialFileProvider) applySpec(spec resource.ManagedFilePartialSpec, kind, group string, items []resource.ResourceItem, op string) []provider.ApplyItemResult {
+	results := make([]provider.ApplyItemResult, 0, len(items))
+
 	path := expandPath(spec.Path)
 	format := detectFormat(path)
 	if format == formatUnknown {
-		return append(results, provider.ApplyItemResult{
-			Kind:  addition.Kind,
-			Group: addition.Group,
-			Op:    "add",
-			Err:   fmt.Errorf("unsupported file format: %s", path),
-		})
+		for _, item := range items {
+			results = append(results, provider.ApplyItemResult{
+				Kind:  kind,
+				Group: group,
+				Item:  item.Name,
+				Op:    op,
+				Err:   fmt.Errorf("unsupported file format: %s", path),
+			})
+		}
+		return results
 	}
 
 	// Ensure parent directories exist
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return append(results, provider.ApplyItemResult{
-			Kind:  addition.Kind,
-			Group: addition.Group,
-			Op:    "add",
-			Err:   fmt.Errorf("failed to create parent directories for %s: %w", path, err),
-		})
+		for _, item := range items {
+			results = append(results, provider.ApplyItemResult{
+				Kind:  kind,
+				Group: group,
+				Item:  item.Name,
+				Op:    op,
+				Err:   fmt.Errorf("failed to create parent directories for %s: %w", path, err),
+			})
+		}
+		return results
 	}
 
 	// Read existing file or start with empty map
 	content := make(map[string]any)
 	if data, err := os.ReadFile(path); err == nil {
 		if err := unmarshalByFormat(data, format, &content); err != nil {
-			return append(results, provider.ApplyItemResult{
-				Kind:  addition.Kind,
-				Group: addition.Group,
-				Op:    "add",
-				Err:   fmt.Errorf("failed to parse existing file %s: %w", path, err),
-			})
+			for _, item := range items {
+				results = append(results, provider.ApplyItemResult{
+					Kind:  kind,
+					Group: group,
+					Item:  item.Name,
+					Op:    op,
+					Err:   fmt.Errorf("failed to parse existing file %s: %w", path, err),
+				})
+			}
+			return results
 		}
 	} else if !os.IsNotExist(err) {
-		return append(results, provider.ApplyItemResult{
-			Kind:  addition.Kind,
-			Group: addition.Group,
-			Op:    "add",
-			Err:   fmt.Errorf("failed to read file %s: %w", path, err),
-		})
+		for _, item := range items {
+			results = append(results, provider.ApplyItemResult{
+				Kind:  kind,
+				Group: group,
+				Item:  item.Name,
+				Op:    op,
+				Err:   fmt.Errorf("failed to read file %s: %w", path, err),
+			})
+		}
+		return results
 	}
 
 	// Merge declared keys
@@ -306,49 +343,39 @@ func (p *PartialFileProvider) applyAddition(addition provider.GroupAddition) []p
 	// Marshal and write
 	output, err := marshalByFormat(content, format)
 	if err != nil {
-		return append(results, provider.ApplyItemResult{
-			Kind:  addition.Kind,
-			Group: addition.Group,
-			Op:    "add",
-			Err:   fmt.Errorf("failed to marshal content: %w", err),
-		})
+		for _, item := range items {
+			results = append(results, provider.ApplyItemResult{
+				Kind:  kind,
+				Group: group,
+				Item:  item.Name,
+				Op:    op,
+				Err:   fmt.Errorf("failed to marshal content: %w", err),
+			})
+		}
+		return results
 	}
 
 	if err := os.WriteFile(path, output, 0644); err != nil {
-		return append(results, provider.ApplyItemResult{
-			Kind:  addition.Kind,
-			Group: addition.Group,
-			Op:    "add",
-			Err:   fmt.Errorf("failed to write file %s: %w", path, err),
-		})
-	}
-
-	for _, item := range addition.Items {
-		results = append(results, provider.ApplyItemResult{
-			Kind:  addition.Kind,
-			Group: addition.Group,
-			Item:  item.Name,
-			Op:    "add",
-		})
-	}
-
-	return results
-}
-
-// applyModification handles file updates.
-func (p *PartialFileProvider) applyModification(modification provider.GroupModification) []provider.ApplyItemResult {
-	// We need the spec to know what to apply - but GroupModification doesn't have RawSpec
-	// For now, we can't fully implement this without storing the spec somewhere accessible
-	// This is a limitation of the current provider interface
-	results := make([]provider.ApplyItemResult, len(modification.Changes))
-	for i, change := range modification.Changes {
-		results[i] = provider.ApplyItemResult{
-			Kind:  modification.Kind,
-			Group: modification.Group,
-			Item:  change.ItemName,
-			Op:    "modify",
-			Err:   fmt.Errorf("modification not yet fully implemented for PartialFileProvider"),
+		for _, item := range items {
+			results = append(results, provider.ApplyItemResult{
+				Kind:  kind,
+				Group: group,
+				Item:  item.Name,
+				Op:    op,
+				Err:   fmt.Errorf("failed to write file %s: %w", path, err),
+			})
 		}
+		return results
 	}
+
+	for _, item := range items {
+		results = append(results, provider.ApplyItemResult{
+			Kind:  kind,
+			Group: group,
+			Item:  item.Name,
+			Op:    op,
+		})
+	}
+
 	return results
 }
