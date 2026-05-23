@@ -223,12 +223,17 @@ func marshalByFormat(v any, format fileFormat) ([]byte, error) {
 }
 
 // normalizePartialValue tries to JSON-parse a string value so that JSON objects
-// stored as strings round-trip correctly when written to JSON/YAML files.
+// and arrays stored as strings round-trip correctly when written to JSON/YAML files.
+// Primitive JSON types (numbers, booleans, null) are left as-is to preserve the
+// original string representation.
 func normalizePartialValue(v any) any {
 	if s, ok := v.(string); ok {
 		var parsed any
 		if err := json.Unmarshal([]byte(s), &parsed); err == nil {
-			return parsed
+			switch parsed.(type) {
+			case map[string]any, []any:
+				return parsed
+			}
 		}
 	}
 	return v
