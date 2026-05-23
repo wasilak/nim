@@ -7237,5 +7237,678 @@
         "ui-overhaul"
       ]
     }
+  },
+  "hooks": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Define Hook Data Structures",
+        "description": "Create the Go data structures for Hook and Hooks as defined in the PRD",
+        "details": "Implement the Hook and Hooks structs in pkg/resource/hook.go with the exact fields specified in the PRD. The Hook struct should include Name, Inline, File, OnFailure, SuccessCodes, and Finally fields with proper YAML tags. The Hooks struct should contain Pre and Post slices of Hook. Ensure proper validation of field types and defaults as specified.",
+        "testStrategy": "Unit tests verifying struct fields, YAML unmarshaling with various combinations of fields, and default values for optional fields",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Hook struct with YAML tags and field validation",
+            "description": "Create the Hook struct definition with all required fields including Name, Inline, File, OnFailure, SuccessCodes, and Finally with proper YAML tags and validation",
+            "dependencies": [],
+            "details": "Define Hook struct in pkg/resource/hook.go with fields Name (string), Inline (string), File (string), OnFailure (string), SuccessCodes ([]int), and Finally (bool) with appropriate YAML tags. Implement basic validation for field types and handle default values as specified in PRD. Ensure proper handling of empty fields and required field validation.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Hooks struct with Pre and Post slices",
+            "description": "Create the Hooks struct containing Pre and Post slices of Hook structs with proper YAML marshaling support",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement Hooks struct in pkg/resource/hook.go with Pre ([]Hook) and Post ([]Hook) fields. Ensure proper YAML tags for both slices and validate that they correctly unmarshal from YAML. Implement default handling for empty slices and ensure proper integration with Hook struct definitions.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Validate YAML tag correctness and field type handling",
+            "description": "Verify that all struct fields have correct YAML tags and proper field type validation",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Test YAML unmarshaling functionality with various combinations of fields to ensure proper tag handling. Validate that field types are correctly parsed and that default values are properly applied. Test edge cases including empty field handling and required field validation scenarios.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Implement default value handling for optional fields",
+            "description": "Ensure proper default value handling for optional Hook struct fields according to PRD specifications",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Implement logic to handle default values for optional fields like SuccessCodes and Finally. Ensure that empty values are properly initialized according to specification. Test that default values are correctly applied during YAML unmarshaling and struct initialization.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 5,
+            "title": "Create comprehensive unit tests for Hook data structures",
+            "description": "Develop unit tests to verify struct fields, YAML unmarshaling, and default value handling for Hook and Hooks structures",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Write unit tests covering struct field verification, YAML marshaling/unmarshaling with various field combinations, default value application, and edge case handling. Include tests for empty field scenarios, required field validation, and proper type handling for all Hook and Hooks struct fields.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement Hook Executor Infrastructure",
+        "description": "Create the core hook execution logic including temp file handling and environment injection",
+        "details": "Implement pkg/hooks/executor.go with functions to execute hooks. Handle inline script writing to temp files with 0700 permissions, shebang detection, file-based execution, and proper cleanup. Implement environment variable injection including NIM_RESOURCE_* variables. Capture stdout/stderr and handle debug output. Use os.TempDir() for temp file location with pattern 'nim-hook-<resource-name>-<random>'.",
+        "testStrategy": "Unit tests for temp file creation/deletion, shebang detection, environment variable injection, and output capture functionality",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Temp File Handling for Hook Execution",
+            "description": "Create functionality to write inline scripts to temporary files with proper permissions and cleanup procedures",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement temp file creation using os.TempDir() with pattern 'nim-hook-<resource-name>-<random>' and 0700 permissions. Add proper cleanup logic to remove temp files after execution. Handle file writing and deletion with error handling for various failure scenarios.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Shebang Detection and Script Execution",
+            "description": "Add logic to detect shebangs in scripts and execute them appropriately with proper file handling",
+            "dependencies": [
+              1
+            ],
+            "details": "Create shebang detection functionality that identifies script interpreters and executes files accordingly. Implement file-based execution with proper error handling for missing interpreters or execution failures. Ensure compatibility with different script types and proper error propagation.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Implement Environment Variable Injection for Hooks",
+            "description": "Create environment variable injection system including NIM_RESOURCE_* variables for hook processes",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement environment variable injection including NIM_RESOURCE_* variables such as NIM_RESOURCE_KIND, NIM_RESOURCE_NAME, NIM_RESOURCE_NAMESPACE, etc. Create per-provider environment builders that extract kind-specific fields. Merge with user environment before hook execution with proper validation and filtering.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Implement Output Capture and Debug Logging",
+            "description": "Add stdout/stderr capture functionality with proper logging and debug output handling",
+            "dependencies": [
+              2
+            ],
+            "details": "Capture stdout/stderr output from hook executions and implement proper logging with prefixing ([hook/<name>] or [hook/<index>]). Handle debug mode logging at slog.Debug level. Ensure output formatting compatibility with existing logging infrastructure and proper handling of failure scenarios.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Integrate Hooks with Resource Base Structure",
+        "description": "Add hooks field to the base resource structure",
+        "details": "Modify the base resource struct to include the Hooks field. This should be done in the shared resource base struct where metadata and spec are composed. Ensure the field is properly tagged for YAML marshaling/unmarshaling and that it integrates with the existing resource model.",
+        "testStrategy": "Unit tests verifying YAML marshaling/unmarshaling of resources with and without hooks field, ensuring backward compatibility",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Modify Base Resource Structure to Include Hooks Field",
+            "description": "Update the shared resource base struct to add the Hooks field with proper YAML tags for marshaling/unmarshaling",
+            "dependencies": [
+              3
+            ],
+            "details": "Modify the base resource struct definition to include a Hooks field that properly handles YAML marshaling/unmarshaling. The field should be added to the shared resource base struct where metadata and spec are composed. Ensure the field is properly tagged for YAML handling and integrates with existing resource model. Implement backward compatibility to ensure existing resources without hooks field continue to work correctly.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement and Test YAML Marshaling/Unmarshaling for Hooks Field",
+            "description": "Create comprehensive tests to verify YAML marshaling/unmarshaling behavior of resources with and without hooks field",
+            "dependencies": [
+              3
+            ],
+            "details": "Develop unit tests that verify YAML marshaling/unmarshaling functionality for resources with and without the hooks field. Test backward compatibility scenarios where existing resources without hooks field behave identically to current behavior. Ensure the implementation properly handles both cases and that existing functionality remains intact. Include edge case testing for different resource types and ensure no breaking changes to existing YAML handling.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Pre-Hook Execution Logic",
+        "description": "Integrate pre-hook execution into the apply flow before resource actions",
+        "details": "Modify the apply DAG to execute pre-hooks in list order before provider actions. Implement failure propagation logic where 'fail' on pre-hook stops chain and skips resource action, while 'warn' continues execution. Ensure hooks only run when resource has detected diff. Handle hook execution context and environment variable injection.",
+        "testStrategy": "Integration tests verifying pre-hook execution order, failure handling, and resource action skipping behavior",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Modify Apply DAG for Pre-Hook Execution",
+            "description": "Update the apply DAG to execute pre-hooks in list order before provider actions",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Implement DAG modification logic to ensure pre-hooks run sequentially before resource actions. Maintain execution order integrity and handle hook execution flow within the existing apply DAG structure. Ensure proper dependency management between hook execution and resource action execution.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Failure Propagation Logic for Pre-Hooks",
+            "description": "Create logic to handle 'fail' and 'warn' behaviors for pre-hooks",
+            "dependencies": [
+              1
+            ],
+            "details": "Develop failure handling mechanism where 'fail' stops the chain and skips resource action, while 'warn' continues execution. Implement proper error propagation and resource action skipping logic. Ensure failure states are properly communicated and handled within the execution flow.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Resource Diff Detection for Hook Execution",
+            "description": "Ensure hooks only execute when resource has detected diff",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement resource diff detection logic to determine when hooks should execute. Create mechanisms to detect changes in resource state and conditionally trigger hook execution. Integrate with existing diff detection systems to maintain consistency and avoid unnecessary hook execution.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Environment Variable Injection for Pre-Hook Execution",
+            "description": "Handle hook execution context and environment variable injection",
+            "dependencies": [
+              2,
+              3,
+              6
+            ],
+            "details": "Implement environment variable injection including NIM_RESOURCE_* variables for pre-hooks. Create execution context that properly injects environment variables before hook execution. Ensure proper variable handling for different resource kinds and maintain compatibility with existing environment injection infrastructure.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 5,
+            "title": "Test Pre-Hook Execution Scenarios",
+            "description": "Verify pre-hook execution order, failure handling, and resource action skipping behavior",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create comprehensive integration tests covering pre-hook execution order, failure handling for both 'fail' and 'warn' behaviors, and resource action skipping. Test various failure scenarios including edge cases and ensure proper execution flow validation. Include tests for environment variable injection and diff detection functionality.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement Post-Hook Execution Logic",
+        "description": "Integrate post-hook execution into the apply flow after resource actions",
+        "details": "Modify the apply DAG to execute post-hooks in list order after provider actions. Implement 'finally' logic to run hooks regardless of resource action outcome. Handle failure propagation where 'fail' marks resource as failed but continues apply, while 'warn' logs warning and continues. Ensure proper hook execution context and environment variable injection.",
+        "testStrategy": "Integration tests verifying post-hook execution order, finally logic, and failure propagation behavior",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Modify Apply DAG for Post-Hook Execution",
+            "description": "Update the apply DAG to execute post-hooks in list order after provider actions",
+            "dependencies": [
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "details": "Modify the apply DAG structure to insert post-hook execution nodes after resource action nodes. Ensure hooks execute in the order specified in the hook list configuration. Implement proper dependency management between resource actions and their corresponding post-hooks.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Finally Logic for Post-Hook Execution",
+            "description": "Create 'finally' logic to run hooks regardless of resource action outcome",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement logic to ensure post-hooks execute even when resource actions fail. Create a finally block that captures all hook execution regardless of success or failure of preceding resource operations. Maintain hook execution order while ensuring failure scenarios don't prevent hook execution.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Handle Failure Propagation for Post-Hooks",
+            "description": "Implement failure propagation where 'fail' marks resource as failed but continues apply, while 'warn' logs warning and continues",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement logic to handle different failure modes for post-hooks. When hook action is 'fail', mark the resource as failed but continue with the apply process. When action is 'warn', log a warning message and continue execution. Ensure proper error propagation through the system.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Manage Post-Hook Execution Context and Environment Variables",
+            "description": "Ensure proper hook execution context and environment variable injection for post-hooks",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Implement proper execution context management for post-hooks including environment variable injection. Ensure NIM_RESOURCE_* variables are properly set for each hook execution. Integrate with existing environment variable injection infrastructure from Task 6 to maintain consistency across pre-hooks and post-hooks.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 5,
+            "title": "Comprehensive Testing of Post-Hook Execution Scenarios",
+            "description": "Test different execution scenarios and failure modes for post-hooks",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Create comprehensive test suite covering various post-hook execution scenarios including normal execution, finally execution, failure propagation, and different hook action types. Test both success and failure modes for hooks and verify proper behavior in all combinations. Include integration tests verifying end-to-end post-hook execution flow.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement Environment Variable Injection",
+        "description": "Inject NIM_RESOURCE_* environment variables into hook processes",
+        "details": "Create per-provider environment builders that extract kind-specific fields into environment maps. Merge these with user environment before hook execution. Implement injection of NIM_RESOURCE_KIND, NIM_RESOURCE_NAME, NIM_RESOURCE_NAMESPACE, NIM_RESOURCE_ACTION, NIM_RESOURCE_DESTINATION, NIM_RESOURCE_PACKAGE, and NIM_RESOURCE_TAP variables. Ensure variables are only injected when applicable for each resource kind.",
+        "testStrategy": "Unit tests verifying environment variable injection for different resource types, ensuring only applicable variables are set",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Provider-Specific Environment Builders",
+            "description": "Develop per-provider environment builders that extract kind-specific fields into environment maps for different resource types",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Implement provider-specific environment builder functions that extract resource-specific fields and map them to environment variables. Each builder should handle different resource kinds and ensure proper field extraction. Include logic to merge provider-specific maps with user environment variables before hook execution.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Environment Variable Injection Logic",
+            "description": "Create core logic to inject NIM_RESOURCE_* variables into hook processes based on resource kind",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement the main injection logic that sets NIM_RESOURCE_KIND, NIM_RESOURCE_NAME, NIM_RESOURCE_NAMESPACE, NIM_RESOURCE_ACTION, NIM_RESOURCE_DESTINATION, NIM_RESOURCE_PACKAGE, and NIM_RESOURCE_TAP variables. Ensure variables are only injected when applicable for each resource kind and handle proper merging with existing environment variables.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Test Environment Variable Injection with Edge Cases",
+            "description": "Develop comprehensive tests covering different resource types, missing variables, and variable name conflicts",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create unit tests covering various resource types and their corresponding environment variable injection. Include edge cases such as missing required variables, variable name conflicts, and proper handling of different resource kinds. Test that only applicable variables are set for each resource type and that existing environment variables are preserved.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement Generator Hook Propagation",
+        "description": "Propagate hooks from generator resources to generated child resources",
+        "details": "Modify the resource resolution logic to propagate hooks from generator resources to each generated child at resolve time. Ensure each hook invocation runs once per child resource with that child's specific NIM_RESOURCE_* env vars. Implement logic to resolve generator hooks at apply time without duplicating them in state.",
+        "testStrategy": "Integration tests verifying hook propagation from generator to children, ensuring each child gets correct environment variables",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Modify Resource Resolution Logic for Generator Hooks",
+            "description": "Update the resource resolution logic to propagate hooks from generator resources to each generated child resource at resolve time",
+            "dependencies": [
+              3,
+              5
+            ],
+            "details": "Implement core logic to intercept generator resources during resolution and inject their hook definitions into child resources. Ensure the hook propagation happens before child resource processing begins. Maintain reference to original generator hooks while creating new hook instances for each child.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Child Resource Hook Execution",
+            "description": "Ensure each hook invocation runs once per child resource with that child's specific NIM_RESOURCE_* environment variables",
+            "dependencies": [
+              1
+            ],
+            "details": "Create execution logic that runs hooks once per child resource with proper environment variable injection. Implement environment variable mapping that includes NIM_RESOURCE_KIND, NIM_RESOURCE_NAME, NIM_RESOURCE_NAMESPACE, NIM_RESOURCE_ACTION, NIM_RESOURCE_DESTINATION, NIM_RESOURCE_PACKAGE, and NIM_RESOURCE_TAP variables. Ensure each child gets its own unique environment context.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Prevent Hook Duplication in State Management",
+            "description": "Implement logic to resolve generator hooks at apply time without duplicating them in state",
+            "dependencies": [
+              1
+            ],
+            "details": "Design state management logic to track generator hooks separately from child resources to prevent duplication. Ensure that during apply time, hooks are resolved once per generator and properly associated with children without creating duplicate entries in the state. Implement cleanup logic to avoid state bloat.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Implement Environment Variable Injection for Generated Children",
+            "description": "Inject NIM_RESOURCE_* environment variables specific to each child resource during hook execution",
+            "dependencies": [
+              2,
+              6
+            ],
+            "details": "Extend environment variable injection logic to handle generator child resources. Create mapping logic that generates appropriate NIM_RESOURCE_* variables for each child resource based on its properties. Ensure the environment injection works correctly with the existing hook executor infrastructure and maintains proper variable scope for each child.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 5,
+            "title": "Develop Comprehensive Hook Propagation Testing",
+            "description": "Create integration tests verifying hook propagation from generator to children with correct environment variables",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Design and implement comprehensive integration tests that validate the complete hook propagation flow. Test scenarios including multiple children, different hook types, environment variable correctness, and proper execution context. Include tests for failure conditions and ensure each child receives unique environment variables.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 6,
+            "title": "Implement State Management for Generator Hooks",
+            "description": "Create proper state handling for generator hooks to avoid duplication and maintain consistency",
+            "dependencies": [
+              3
+            ],
+            "details": "Develop state management components that track generator hooks separately from child resources. Implement logic to ensure hooks are not duplicated in state during apply operations. Create mechanisms to maintain hook consistency across different execution phases and ensure proper cleanup of temporary hook references.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement Plan-Time Hook Validation",
+        "description": "Validate hook configuration during nim plan without executing hooks",
+        "details": "Add validation logic during plan time to check hook config fields: exactly one of inline/file, valid on_failure values, valid success_codes, finally only on post-hooks, and file path resolution. Emit warnings for missing files at plan time (not hard errors). Ensure validation doesn't interfere with existing plan functionality.",
+        "testStrategy": "Unit tests for plan validation logic, including edge cases and error conditions, with integration tests covering full plan flow",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Hook Configuration Validation Rules",
+            "description": "Develop validation logic to check hook config fields including exactly one of inline/file, valid on_failure values, valid success_codes, finally only on post-hooks, and file path resolution",
+            "dependencies": [
+              2
+            ],
+            "details": "Create validation functions that verify hook configuration during plan time. Implement checks for mutually exclusive fields (inline vs file), validate on_failure values against allowed set, ensure success_codes are valid integers, confirm finally keyword is only used with post-hooks, and resolve file paths without executing hooks. Handle missing files with warnings rather than hard errors.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Error and Warning Handling for Hook Validation",
+            "description": "Establish proper error and warning emission mechanisms for hook validation during plan time",
+            "dependencies": [
+              1
+            ],
+            "details": "Design and implement the error/warning reporting system for validation failures. Ensure warnings are emitted for missing files at plan time without stopping execution. Create structured error messages that clearly indicate validation rule violations. Implement logging mechanisms that integrate with existing plan flow without interference.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Integrate Hook Validation with Plan-Time Execution Flow",
+            "description": "Test and verify hook validation integration with existing plan functionality and edge cases",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Conduct comprehensive testing to ensure validation doesn't interfere with existing plan functionality. Test edge cases including missing files, invalid field combinations, and various hook configuration scenarios. Verify that plan-time validation properly integrates with the existing DAG execution flow and maintains backward compatibility with existing hooks functionality.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Implement Hook Output Handling and Logging",
+        "description": "Handle hook stdout/stderr output and logging according to PRD requirements",
+        "details": "Implement logging of hook output with proper prefixing ([hook/<name>] or [hook/<index>]). Ensure stdout/stderr are captured and displayed on failure. Implement debug mode logging at slog.Debug level. Handle output formatting and ensure compatibility with existing logging infrastructure.",
+        "testStrategy": "Unit tests for output capture and logging behavior, including debug mode functionality and proper output prefixing",
+        "priority": "medium",
+        "dependencies": [
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Hook Output Capture and Storage",
+            "description": "Develop functionality to capture and store stdout/stderr output from hook executions",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement output capture logic in the hook executor that stores both stdout and stderr streams. Ensure captured output is accessible for logging and failure reporting. Handle output buffering and ensure compatibility with existing logging infrastructure. Implement proper cleanup of temporary output storage.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Logging Prefixing and Formatting",
+            "description": "Create logic for proper output prefixing with hook name/index and implement debug mode logging",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement prefixing logic that formats output with [hook/<name>] or [hook/<index>] based on hook configuration. Add debug mode functionality that logs at slog.Debug level. Ensure output formatting is consistent with existing logging infrastructure. Handle proper prefixing for both stdout and stderr streams.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Create Comprehensive Logging Tests",
+            "description": "Develop unit tests covering output capture, logging behavior, and debug mode functionality",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create comprehensive test suite covering various output scenarios including normal execution, failure conditions, and different hook configurations. Test debug mode logging behavior and ensure proper prefixing for different hook types. Include tests for error conditions and verify compatibility with existing logging infrastructure. Implement test cases for both stdout and stderr handling.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Ensure Backward Compatibility and Final Testing",
+        "description": "Verify existing resources without hooks behave identically to current behavior",
+        "details": "Run comprehensive tests to ensure resources with no hooks field behave exactly as before. Verify all existing tests pass. Create integration tests covering various hook scenarios including edge cases. Document the changes and update README with new YAML schema examples. Perform end-to-end testing of full apply flow with and without hooks.",
+        "testStrategy": "Full regression testing suite, integration tests for complete apply flow, and verification that all existing tests pass",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Regression Testing for Existing Functionality",
+            "description": "Execute comprehensive regression tests to ensure existing resources without hooks field behave identically to current behavior",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "details": "Run all existing test suites to verify backward compatibility. Create test cases that specifically validate that resources without hooks field maintain exact same behavior as before. Include edge case testing for various resource types and configurations.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Full Apply Flow End-to-End Testing",
+            "description": "Perform comprehensive end-to-end testing of the complete apply flow with and without hooks functionality",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "details": "Test complete apply flow scenarios including resources with hooks, without hooks, and mixed scenarios. Verify that the apply DAG executes correctly in both cases. Test failure scenarios, success scenarios, and edge cases in the full workflow.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Integration Testing of All Hook Scenarios",
+            "description": "Create and execute integration tests covering all hook scenarios including edge cases",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "details": "Develop comprehensive integration tests for pre-hooks, post-hooks, and finally hooks. Test various hook configurations, failure propagation behavior, environment variable injection, and execution context handling. Include edge cases like empty hooks lists, malformed hook definitions, and complex hook dependencies.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Documentation and README Updates",
+            "description": "Document the changes and update README with new YAML schema examples",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9
+            ],
+            "details": "Update project documentation to reflect new hooks functionality. Create comprehensive YAML schema examples showing various hook configurations. Document hook execution order, failure handling, environment variables, and best practices. Ensure all examples are consistent with current implementation and cover all supported hook types.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 5,
+            "title": "Comprehensive Validation and Final Verification",
+            "description": "Perform final validation and verification of all implemented features and backward compatibility",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Execute final comprehensive validation tests covering all aspects of the hooks implementation. Verify that all existing tests pass, backward compatibility is maintained, and new functionality works correctly. Include manual testing of critical paths and automated validation of edge cases. Prepare final test reports and validation documentation.",
+            "status": "pending",
+            "testStrategy": null
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2026-05-23T08:27:44.773Z",
+      "updated": "2026-05-23T08:27:44.773Z",
+      "description": "Tasks for hooks context"
+    }
   }
 }

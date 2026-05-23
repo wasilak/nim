@@ -33,7 +33,6 @@ ci/ci
 .taskmaster/state.json
 
 # GSD planning docs (local-only)
-.planning/*.md
-.planning/config.json
-.planning/research/
-.planning/phases/
+.planning/
+.serena/
+.taskmaster/
