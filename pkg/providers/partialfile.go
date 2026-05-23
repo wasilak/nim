@@ -222,10 +222,24 @@ func marshalByFormat(v any, format fileFormat) ([]byte, error) {
 	}
 }
 
+// normalizePartialValue tries to JSON-parse a string value so that JSON objects
+// stored as strings round-trip correctly when written to JSON/YAML files.
+func normalizePartialValue(v any) any {
+	if s, ok := v.(string); ok {
+		var parsed any
+		if err := json.Unmarshal([]byte(s), &parsed); err == nil {
+			return parsed
+		}
+	}
+	return v
+}
+
 // keysNeedUpdate checks if desired keys differ from existing.
 func (p *PartialFileProvider) keysNeedUpdate(existing, desired map[string]any) bool {
 	for k, v := range desired {
-		if existing[k] != v {
+		d1, _ := json.Marshal(normalizePartialValue(v))
+		d2, _ := json.Marshal(existing[k])
+		if string(d1) != string(d2) {
 			return true
 		}
 	}
@@ -335,9 +349,10 @@ func (p *PartialFileProvider) applySpec(spec resource.ManagedFilePartialSpec, ki
 		return results
 	}
 
-	// Merge declared keys
+	// Merge declared keys — try JSON-parsing string values so that JSON objects
+	// are stored as structured data rather than raw strings.
 	for _, pk := range spec.Keys {
-		content[pk.Key] = pk.Value
+		content[pk.Key] = normalizePartialValue(pk.Value)
 	}
 
 	// Marshal and write
