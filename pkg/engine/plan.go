@@ -54,14 +54,13 @@ func (e *Engine) Plan(ctx context.Context, opts PlanOptions) (*PlanResult, error
 		return nil, fmt.Errorf("failed to load resources: %w", err)
 	}
 
-	// Filter resources by namespace BEFORE building DAG
+	// Filter resources by namespace BEFORE building DAG.
+	// activeNS may itself be a /pattern/ regex when the user passes e.g.
+	// NIM_NAMESPACE="/(default|work)/"; MatchesNamespaceFilter handles both cases.
 	activeNS := opts.Namespace
-	if activeNS == "" {
-		activeNS = "default"
-	}
 	var filtered []resource.Resource
 	for _, res := range resources {
-		if res.MatchesNamespace(activeNS) {
+		if resource.MatchesNamespaceFilter(res, activeNS) {
 			filtered = append(filtered, res)
 		}
 	}

@@ -18,7 +18,9 @@ package resource
 
 import (
 	"fmt"
+	"log/slog"
 	"regexp"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -111,13 +113,22 @@ func (m *Metadata) CompileNamespace() error {
 			return fmt.Errorf("parsing namespace %q: %w", m.Namespace, err)
 		}
 		m.namespaceRe = re
+		if !strings.HasPrefix(pattern, "^") || !strings.HasSuffix(pattern, "$") {
+			slog.Warn("namespace regex uses substring matching — add ^ and $ anchors for exact match",
+				"namespace", m.Namespace, "resource", m.Name)
+		}
 	}
 	return nil
 }
 
 // ResourceID returns a unique identifier for the resource (namespace/name).
+// For regex namespaces the raw pattern is used as-is (it already ends with "/").
 func (m Metadata) ResourceID() string {
-	return fmt.Sprintf("%s/%s", m.GetNamespace(), m.Name)
+	ns := m.GetNamespace()
+	if ns[len(ns)-1] == '/' {
+		return ns + m.Name
+	}
+	return fmt.Sprintf("%s/%s", ns, m.Name)
 }
 
 // BaseResource provides common fields embedded in all resource structs.
@@ -148,11 +159,84 @@ func (r *BaseResource) CompileNamespace() error {
 	return r.Metadata.CompileNamespace()
 }
 
+// MatchesNamespaceFilter reports whether res should be included for activeNS.
+// It handles the case where activeNS itself is a /pattern/ regex (e.g. when
+// NIM_NAMESPACE="/(default|work)/"), which MatchesNamespace cannot handle
+// because that method expects a plain string and matches in the opposite direction.
+//
+// When activeNS is a /pattern/ regex:
+//   - Plain-namespace resources: included if the active regex matches their namespace.
+//   - Regex-namespace resources: matched against candidate namespaces extracted from
+//     the active pattern (handles common alternations like "(default|work)");
+//     falls back to conservative include for complex patterns.
+//
+// When activeNS is a plain string, delegates to res.MatchesNamespace.
+func MatchesNamespaceFilter(res Resource, activeNS string) bool {
+	if len(activeNS) < 2 || activeNS[0] != '/' || activeNS[len(activeNS)-1] != '/' {
+		return res.MatchesNamespace(activeNS)
+	}
+
+	pattern := activeNS[1 : len(activeNS)-1]
+	activeRe, err := regexp.Compile("(?i)" + pattern)
+	if err != nil {
+		// Invalid active-NS regex: no match rather than panic.
+		return false
+	}
+
+	meta := res.GetMetadata()
+
+	if meta.namespaceRe == nil {
+		// Plain-namespace resource: check if active regex matches its namespace.
+		return activeRe.MatchString(meta.GetNamespace())
+	}
+
+	// Regex-namespace resource: try to extract literal alternation candidates
+	// from the active pattern so we can ask "does this resource match any of them?"
+	candidates := extractAlternatives(pattern)
+	if candidates == nil {
+		// Complex active pattern — include conservatively.
+		return true
+	}
+	for _, c := range candidates {
+		if res.MatchesNamespace(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractAlternatives parses literal alternation tokens from simple regex patterns
+// like "(default|work)" or "^(default|work|home)$". Returns nil for patterns
+// containing regex metacharacters that prevent literal extraction.
+func extractAlternatives(pattern string) []string {
+	// Strip anchors and outer parens.
+	p := strings.TrimPrefix(pattern, "^")
+	p = strings.TrimSuffix(p, "$")
+	p = strings.TrimPrefix(p, "(")
+	p = strings.TrimSuffix(p, ")")
+	// Bail on any regex metacharacter beyond simple alternation.
+	if strings.ContainsAny(p, `*+?.[\{`) {
+		return nil
+	}
+	parts := strings.Split(p, "|")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // MatchesNamespace reports whether this resource should be included when the
 // active namespace is activeNS. Three-branch logic per D-07:
-//   1. If namespaceRe != nil: return namespaceRe.MatchString(activeNS) (regex match)
-//   2. Else if Namespace == "": return activeNS == "default" (implicit default)
-//   3. Else: return Namespace == activeNS (exact match)
+//  1. If namespaceRe != nil: return namespaceRe.MatchString(activeNS) (regex match)
+//  2. Else if Namespace == "": return activeNS == "default" (implicit default)
+//  3. Else: return Namespace == activeNS (exact match)
 func (r BaseResource) MatchesNamespace(activeNS string) bool {
 	if r.Metadata.namespaceRe != nil {
 		return r.Metadata.namespaceRe.MatchString(activeNS)
