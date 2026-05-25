@@ -148,7 +148,59 @@ func (p *PartialFileProvider) Reconcile(ctx context.Context,
 		}
 	}
 
-	_ = showDiff // Will be used for diff implementation
+	if showDiff {
+		for ai := range plan.Additions {
+			spec, ok := plan.Additions[ai].RawSpec.(resource.ManagedFilePartialSpec)
+			if !ok {
+				continue
+			}
+			format := detectFormat(spec.Path)
+			if format == formatUnknown {
+				continue
+			}
+			path := expandPath(spec.Path)
+			existing := make(map[string]any)
+			if data, err := os.ReadFile(path); err == nil {
+				_ = unmarshalByFormat(data, format, &existing)
+			}
+			newContent, err := computeMergedContent(existing, spec.Keys, format)
+			if err != nil {
+				continue
+			}
+			if plan.Additions[ai].Contents == nil {
+				plan.Additions[ai].Contents = make(map[string]string)
+			}
+			for _, item := range plan.Additions[ai].Items {
+				plan.Additions[ai].Contents[item.Name] = newContent
+			}
+		}
+
+		for mi := range plan.Modifications {
+			spec, ok := plan.Modifications[mi].RawSpec.(resource.ManagedFilePartialSpec)
+			if !ok {
+				continue
+			}
+			format := detectFormat(spec.Path)
+			if format == formatUnknown {
+				continue
+			}
+			path := expandPath(spec.Path)
+			existing := make(map[string]any)
+			oldContent := ""
+			if data, err := os.ReadFile(path); err == nil {
+				oldContent = string(data)
+				_ = unmarshalByFormat(data, format, &existing)
+			}
+			newContent, err := computeMergedContent(existing, spec.Keys, format)
+			if err != nil {
+				continue
+			}
+			for ci := range plan.Modifications[mi].Changes {
+				plan.Modifications[mi].Changes[ci].OldContent = oldContent
+				plan.Modifications[mi].Changes[ci].NewContent = newContent
+			}
+		}
+	}
 	return plan
 }
 
@@ -237,6 +289,23 @@ func normalizePartialValue(v any) any {
 		}
 	}
 	return v
+}
+
+// computeMergedContent merges desired keys into existing and returns the
+// serialized result. Used for diff generation without touching the filesystem.
+func computeMergedContent(existing map[string]any, keys []resource.PartialKey, format fileFormat) (string, error) {
+	merged := make(map[string]any, len(existing))
+	for k, v := range existing {
+		merged[k] = v
+	}
+	for _, pk := range keys {
+		merged[pk.Key] = normalizePartialValue(pk.Value)
+	}
+	data, err := marshalByFormat(merged, format)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // keysNeedUpdate checks if desired keys differ from existing.
