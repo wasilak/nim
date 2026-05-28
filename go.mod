@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/Digital-Shane/treeview/v2 v2.0.0
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/alecthomas/chroma/v2 v2.24.1
+	github.com/alecthomas/chroma/v2 v2.26.0
 	github.com/aquasecurity/table v1.11.0
 	github.com/briandowns/spinner v1.23.2
 	github.com/go-playground/validator/v10 v10.30.2
@@ -35,6 +35,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
