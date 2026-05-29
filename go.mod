@@ -3,7 +3,7 @@ module github.com/wasilak/nim
 go 1.26.2
 
 require (
-	github.com/Digital-Shane/treeview/v2 v2.0.0
+	github.com/Digital-Shane/treeview/v2 v2.0.1
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/alecthomas/chroma/v2 v2.26.1
 	github.com/aquasecurity/table v1.11.0
