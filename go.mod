@@ -8,7 +8,7 @@ require (
 	github.com/alecthomas/chroma/v2 v2.26.1
 	github.com/aquasecurity/table v1.11.0
 	github.com/briandowns/spinner v1.23.2
-	github.com/go-playground/validator/v10 v10.30.2
+	github.com/go-playground/validator/v10 v10.30.3
 	github.com/martinohmann/go-difflib v1.1.0
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/minio/minio-go/v7 v7.1.0
@@ -67,10 +67,10 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 )
 
