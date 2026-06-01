@@ -29,7 +29,11 @@
       "Skill(gsd-plan-phase)",
       "Bash(gsd-sdk query *)",
       "Bash(gsd-sdk help *)",
-      "Bash(nim version *)"
+      "Bash(nim version *)",
+      "Bash(/opt/homebrew/bin/rg *)",
+      "Bash(nim --version)",
+      "Bash(/tmp/nim-dev plan *)",
+      "Bash(NIM_LOG_LEVEL=debug /tmp/nim-dev plan --namespace work)"
     ]
   }
 }
