@@ -9,7 +9,8 @@ const (
 	KindGoPackages       = "GoPackages"
 	KindCargoPackages    = "CargoPackages"
 	KindManagedFile      = "ManagedFile"
-	KindAISkillPackages  = "AISkillPackages"
+	KindAISkillPackages    = "AISkillPackages"
+	KindAppStoreApps       = "AppStoreApps"
 	KindManagedFilePartial = "ManagedFilePartial"
 )
 

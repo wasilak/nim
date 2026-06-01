@@ -39,6 +39,7 @@ var allKinds = []string{
 	resource.KindNpmPackages,
 	resource.KindGoPackages,
 	resource.KindCargoPackages,
+	resource.KindAppStoreApps,
 	resource.KindManagedFile,
 	resource.KindAISkillPackages,
 }
@@ -52,6 +53,7 @@ var coverageKinds = []string{
 	resource.KindNpmPackages,
 	resource.KindGoPackages,
 	resource.KindCargoPackages,
+	resource.KindAppStoreApps,
 }
 
 // Stats loads state and computes per-kind statistics. When withCoverage is

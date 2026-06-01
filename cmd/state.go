@@ -320,6 +320,9 @@ func ensureProvidersRegistered() {
 	if _, err := provider.Get("cargo"); err != nil {
 		provider.Register("cargo", providers.NewCargoProvider(), resource.KindCargoPackages)
 	}
+	if _, err := provider.Get("appstore"); err != nil {
+		provider.Register("appstore", providers.NewAppStoreProvider(), resource.KindAppStoreApps)
+	}
 }
 
 // stateMoveCmd moves an item between resource groups in state

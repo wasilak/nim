@@ -45,6 +45,8 @@ func UnmarshalYAML(data []byte) (Resource, error) {
 		resource = &ManagedFile{}
 	case KindAISkillPackages:
 		resource = &AISkillPackages{}
+	case KindAppStoreApps:
+		resource = &AppStoreApps{}
 	case KindManagedFilePartial:
 		resource = &ManagedFilePartial{}
 	default:
@@ -75,6 +77,7 @@ func ValidResourceKinds() []string {
 		KindCargoPackages,
 		KindManagedFile,
 		KindAISkillPackages,
+		KindAppStoreApps,
 		KindManagedFilePartial,
 	}
 }
