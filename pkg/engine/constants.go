@@ -8,4 +8,5 @@ const (
 	providerCargo       = "cargo"
 	providerAISkill     = "aiskill"
 	providerPartialFile = "partialfile"
+	providerAppStore    = "appstore"
 )

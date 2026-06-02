@@ -71,6 +71,11 @@ func NewEngine() (*Engine, error) {
 	providerMap[providerPartialFile] = partialFileProvider
 	provider.Register(providerPartialFile, partialFileProvider, resource.KindManagedFilePartial)
 
+	// AppStoreProvider
+	appStoreProvider := providers.NewAppStoreProvider()
+	providerMap[providerAppStore] = appStoreProvider
+	provider.Register(providerAppStore, appStoreProvider, resource.KindAppStoreApps)
+
 	return &Engine{
 		Config:          cfg,
 		TemplateContext: ctx,
