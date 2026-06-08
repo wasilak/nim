@@ -143,6 +143,7 @@ func DisplayPlanResult(result *engine.PlanResult, outputFormat output.Format, sh
 		type PlanItem struct {
 			Action      string
 			Name        string
+			DisplayName string // human-readable label from item metadata, may be empty
 			Kind        string
 			Region      string
 			Explanation string
@@ -157,6 +158,7 @@ func DisplayPlanResult(result *engine.PlanResult, outputFormat output.Format, sh
 					flatItems = append(flatItems, PlanItem{
 						Action:      "add",
 						Name:        item.Name,
+						DisplayName: item.Metadata["display_name"],
 						Kind:        add.Kind,
 						Region:      add.Group,
 						Details:     item.Version,
@@ -169,6 +171,7 @@ func DisplayPlanResult(result *engine.PlanResult, outputFormat output.Format, sh
 					flatItems = append(flatItems, PlanItem{
 						Action:      "remove",
 						Name:        item.Name,
+						DisplayName: item.Metadata["display_name"],
 						Kind:        rem.Kind,
 						Region:      rem.Group,
 						Details:     item.Version,
@@ -225,12 +228,16 @@ func DisplayPlanResult(result *engine.PlanResult, outputFormat output.Format, sh
 			if info == "" {
 				info = it.Details
 			}
+			displayName := it.Name
+			if it.DisplayName != "" {
+				displayName = it.DisplayName
+			}
 			rows = append(rows, ResourceRow{
 				Status: it.Action,
 				ID:     id,
 				Kind:   it.Kind,
 				Group:  it.Region,
-				Name:   it.Name,
+				Name:   displayName,
 				Info:   info,
 			})
 		}
