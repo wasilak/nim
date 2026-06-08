@@ -2,7 +2,7 @@ module github.com/wasilak/nim/ci
 
 go 1.26.2
 
-require dagger.io/dagger v0.21.3
+require dagger.io/dagger v0.21.4
 
 require (
 	github.com/99designs/gqlgen v0.17.89 // indirect
