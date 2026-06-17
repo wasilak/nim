@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/Digital-Shane/treeview/v2 v2.0.1
 	github.com/Masterminds/sprig/v3 v3.3.0
-	github.com/alecthomas/chroma/v2 v2.26.1
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/aquasecurity/table v1.11.0
 	github.com/briandowns/spinner v1.23.2
 	github.com/go-playground/validator/v10 v10.30.3
