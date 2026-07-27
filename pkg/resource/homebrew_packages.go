@@ -21,6 +21,9 @@ func (r HomeBrewPackages) Validate() error {
 	if err := ValidateStruct(r); err != nil {
 		return err
 	}
+	if err := requireNonExecutable(r.Kind, r.Spec.Formulae); err != nil {
+		return err
+	}
 	return validateDependsOnAddresses(r.Metadata.DependsOn)
 }
 

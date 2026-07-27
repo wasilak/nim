@@ -17,6 +17,9 @@ func (r CargoPackages) Validate() error {
 	if err := ValidateStruct(r); err != nil {
 		return err
 	}
+	if err := requireNonExecutable(r.Kind, r.Spec.Packages); err != nil {
+		return err
+	}
 	return validateDependsOnAddresses(r.Metadata.DependsOn)
 }
 

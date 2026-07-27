@@ -20,6 +20,9 @@ func (r HomeBrewCasks) Validate() error {
 	if err := ValidateStruct(r); err != nil {
 		return err
 	}
+	if err := requireNonExecutable(r.Kind, r.Spec.Casks); err != nil {
+		return err
+	}
 	return validateDependsOnAddresses(r.Metadata.DependsOn)
 }
 

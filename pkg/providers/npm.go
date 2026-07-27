@@ -91,17 +91,72 @@ func (p *NpmProvider) Apply(ctx context.Context, plan provider.GroupPlan) ([]pro
 	return results, nil
 }
 
+// isExecutable reports whether an item should be run via npx instead of
+// installed globally with `npm install -g`.
+func isExecutable(item resource.ResourceItem) bool {
+	return item.Metadata != nil && item.Metadata[resource.MetaExecutable] == "true"
+}
+
+// execArgs decodes the extra npx arguments carried in item metadata.
+func execArgs(item resource.ResourceItem) []string {
+	if item.Metadata == nil {
+		return nil
+	}
+	raw := item.Metadata[resource.MetaArgs]
+	if raw == "" {
+		return nil
+	}
+	var args []string
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		slog.Warn("npm: failed to decode executable args", "item", item.Name, "err", err)
+		return nil
+	}
+	return args
+}
+
+// runNpx runs an executable package ephemerally via npx.
+func (p *NpmProvider) runNpx(ctx context.Context, item resource.ResourceItem) error {
+	spec := item.Name
+	if item.Version != "" {
+		spec = fmt.Sprintf("%s@%s", item.Name, item.Version)
+	}
+	args := append([]string{"--yes", spec}, execArgs(item)...)
+	slog.Info("running npx package", "package", spec)
+	_, stderr, err := cmdutil.RunSimpleFn(ctx, "npx", args...)
+	if err != nil {
+		return fmt.Errorf("failed to run npx %s: %s: %w", spec, stderr, err)
+	}
+	return nil
+}
+
 func (p *NpmProvider) applyGroupAddition(ctx context.Context, addition provider.GroupAddition) []provider.ApplyItemResult {
-	pkgs := make([]string, 0, len(addition.Items))
-	// Map pkg string back to item name for result construction
-	pkgToName := make(map[string]string, len(addition.Items))
+	var results []provider.ApplyItemResult
+
+	// Executable packages run one-by-one via npx (each with its own args).
+	// The rest are installed globally in a single batched npm call.
+	normal := make([]resource.ResourceItem, 0, len(addition.Items))
 	for _, item := range addition.Items {
+		if isExecutable(item) {
+			r := provider.ApplyItemResult{Kind: addition.Kind, Group: addition.Group, Item: item.Name, Op: "add"}
+			if err := p.runNpx(ctx, item); err != nil {
+				r.Err = err
+			}
+			results = append(results, r)
+			continue
+		}
+		normal = append(normal, item)
+	}
+	if len(normal) == 0 {
+		return results
+	}
+
+	pkgs := make([]string, 0, len(normal))
+	for _, item := range normal {
 		pkg := item.Name
 		if item.Version != "" {
 			pkg = fmt.Sprintf("%s@%s", item.Name, item.Version)
 		}
 		pkgs = append(pkgs, pkg)
-		pkgToName[pkg] = item.Name
 	}
 	failed := batchWithFallback(pkgs, func(ns []string) error {
 		args := append([]string{"install", "-g"}, ns...)
@@ -114,8 +169,7 @@ func (p *NpmProvider) applyGroupAddition(ctx context.Context, addition provider.
 		}
 		return nil
 	})
-	var results []provider.ApplyItemResult
-	for i, item := range addition.Items {
+	for i, item := range normal {
 		r := provider.ApplyItemResult{Kind: addition.Kind, Group: addition.Group, Item: item.Name, Op: "add"}
 		if err, bad := failed[pkgs[i]]; bad {
 			r.Err = err
