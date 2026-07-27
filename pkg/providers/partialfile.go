@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/wasilak/nim/pkg/planctx"
@@ -328,9 +329,20 @@ func PatchTopLevelJSONKeyPreserveFormatting(content []byte, key string, newValue
 		}
 
 		if currentKey == key {
-			patched := make([]byte, 0, len(content)-(valueEnd-valueStart)+len(newValue))
+			value := newValue
+			preservedFormatting := false
+			if preserved, ok, err := preserveJSONObjectMembers(content[valueStart:valueEnd], newValue); err != nil {
+				return nil, fmt.Errorf("preserve object members for key %q: %w", key, err)
+			} else if ok {
+				value = preserved
+				preservedFormatting = true
+			}
+			if !preservedFormatting {
+				value = indentMultilineJSONValue(value, jsonLineIndent(content, valueStart))
+			}
+			patched := make([]byte, 0, len(content)-(valueEnd-valueStart)+len(value))
 			patched = append(patched, content[:valueStart]...)
-			patched = append(patched, newValue...)
+			patched = append(patched, value...)
 			patched = append(patched, content[valueEnd:]...)
 			return patched, nil
 		}
@@ -348,6 +360,209 @@ func PatchTopLevelJSONKeyPreserveFormatting(content []byte, key string, newValue
 			return nil, fmt.Errorf("expected comma or object end after key %q", currentKey)
 		}
 	}
+}
+
+func jsonLineIndent(content []byte, pos int) []byte {
+	lineStart := pos
+	for lineStart > 0 && content[lineStart-1] != '\n' {
+		lineStart--
+	}
+
+	lineIndentEnd := lineStart
+	for lineIndentEnd < len(content) {
+		switch content[lineIndentEnd] {
+		case ' ', '\t':
+			lineIndentEnd++
+		default:
+			return content[lineStart:lineIndentEnd]
+		}
+	}
+	return content[lineStart:lineIndentEnd]
+}
+
+func indentMultilineJSONValue(value, lineIndent []byte) []byte {
+	if len(lineIndent) == 0 || !strings.Contains(string(value), "\n") {
+		return value
+	}
+
+	indented := make([]byte, 0, len(value)+len(lineIndent)*strings.Count(string(value), "\n"))
+	for i, b := range value {
+		indented = append(indented, b)
+		if b == '\n' && i < len(value)-1 {
+			indented = append(indented, lineIndent...)
+		}
+	}
+	return indented
+}
+
+type jsonObjectMember struct {
+	key   string
+	text  []byte
+	value []byte
+}
+
+func preserveJSONObjectMembers(oldValue, newValue []byte) ([]byte, bool, error) {
+	oldTrimmed := bytesTrimJSONWhitespace(oldValue)
+	newTrimmed := bytesTrimJSONWhitespace(newValue)
+	if len(oldTrimmed) == 0 || len(newTrimmed) == 0 || oldTrimmed[0] != '{' || newTrimmed[0] != '{' {
+		return nil, false, nil
+	}
+	if !strings.Contains(string(oldValue), "\n") {
+		return nil, false, nil
+	}
+
+	oldMembers, oldClose, err := parseJSONObjectMembers(oldValue)
+	if err != nil {
+		return nil, false, err
+	}
+	newMembers, _, err := parseJSONObjectMembers(newValue)
+	if err != nil {
+		return nil, false, err
+	}
+
+	newByKey := make(map[string]jsonObjectMember, len(newMembers))
+	for _, member := range newMembers {
+		newByKey[member.key] = member
+	}
+
+	used := make(map[string]bool, len(newMembers))
+	outputMembers := make([]jsonObjectMember, 0, len(newMembers))
+	changed := len(oldMembers) != len(newMembers)
+	for _, oldMember := range oldMembers {
+		newMember, ok := newByKey[oldMember.key]
+		if !ok {
+			changed = true
+			continue
+		}
+		used[oldMember.key] = true
+		if jsonValuesEqual(oldMember.value, newMember.value) {
+			outputMembers = append(outputMembers, oldMember)
+			continue
+		}
+		changed = true
+		outputMembers = append(outputMembers, newMember)
+	}
+	for _, newMember := range newMembers {
+		if !used[newMember.key] {
+			changed = true
+			outputMembers = append(outputMembers, newMember)
+		}
+	}
+	if !changed {
+		return oldValue, true, nil
+	}
+
+	closingIndent := jsonLineIndent(oldValue, oldClose)
+	memberIndent := append([]byte{}, closingIndent...)
+	memberIndent = append(memberIndent, []byte("  ")...)
+	if len(oldMembers) > 0 {
+		if memberKeyStart := findMemberKeyStart(oldValue, oldMembers[0].text); memberKeyStart >= 0 {
+			memberIndent = jsonLineIndent(oldValue, memberKeyStart)
+		}
+	}
+
+	patched := []byte{'{'}
+	if len(outputMembers) == 0 {
+		patched = append(patched, '}')
+		return patched, true, nil
+	}
+	patched = append(patched, '\n')
+	for i, member := range outputMembers {
+		patched = append(patched, memberIndent...)
+		patched = append(patched, member.text...)
+		if i < len(outputMembers)-1 {
+			patched = append(patched, ',')
+		}
+		patched = append(patched, '\n')
+	}
+	patched = append(patched, closingIndent...)
+	patched = append(patched, '}')
+	return patched, true, nil
+}
+
+func bytesTrimJSONWhitespace(value []byte) []byte {
+	start := skipJSONWhitespace(value, 0)
+	end := len(value)
+	for end > start {
+		switch value[end-1] {
+		case ' ', '\n', '\r', '\t':
+			end--
+		default:
+			return value[start:end]
+		}
+	}
+	return value[start:end]
+}
+
+func parseJSONObjectMembers(content []byte) ([]jsonObjectMember, int, error) {
+	pos := skipJSONWhitespace(content, 0)
+	if pos >= len(content) || content[pos] != '{' {
+		return nil, 0, fmt.Errorf("expected object")
+	}
+	pos++
+
+	members := []jsonObjectMember{}
+	for {
+		pos = skipJSONWhitespace(content, pos)
+		if pos >= len(content) {
+			return nil, 0, fmt.Errorf("unterminated object")
+		}
+		if content[pos] == '}' {
+			return members, pos, nil
+		}
+		keyStart := pos
+		keyEnd, err := scanJSONString(content, keyStart)
+		if err != nil {
+			return nil, 0, err
+		}
+		var key string
+		if err := json.Unmarshal(content[keyStart:keyEnd], &key); err != nil {
+			return nil, 0, fmt.Errorf("decode object key: %w", err)
+		}
+		pos = skipJSONWhitespace(content, keyEnd)
+		if pos >= len(content) || content[pos] != ':' {
+			return nil, 0, fmt.Errorf("expected colon after key %q", key)
+		}
+		valueStart := skipJSONWhitespace(content, pos+1)
+		valueEnd, err := scanJSONValue(content, valueStart)
+		if err != nil {
+			return nil, 0, fmt.Errorf("scan value for key %q: %w", key, err)
+		}
+		members = append(members, jsonObjectMember{
+			key:   key,
+			text:  content[keyStart:valueEnd],
+			value: content[valueStart:valueEnd],
+		})
+
+		pos = skipJSONWhitespace(content, valueEnd)
+		if pos >= len(content) {
+			return nil, 0, fmt.Errorf("unterminated object after key %q", key)
+		}
+		switch content[pos] {
+		case ',':
+			pos++
+		case '}':
+			return members, pos, nil
+		default:
+			return nil, 0, fmt.Errorf("expected comma or object end after key %q", key)
+		}
+	}
+}
+
+func jsonValuesEqual(a, b []byte) bool {
+	var av any
+	var bv any
+	if err := json.Unmarshal(a, &av); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &bv); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
+}
+
+func findMemberKeyStart(content []byte, memberText []byte) int {
+	return strings.Index(string(content), string(memberText))
 }
 
 func skipJSONWhitespace(content []byte, pos int) int {
@@ -474,9 +689,10 @@ func appendTopLevelJSONKey(content []byte, closePos int, key string, newValue []
 
 foundPrevious:
 	if prev >= 0 && content[prev] == '{' {
+		value := indentMultilineJSONValue(newValue, []byte("  "))
 		insert := append([]byte("\n  "), encodedKey...)
 		insert = append(insert, []byte(": ")...)
-		insert = append(insert, newValue...)
+		insert = append(insert, value...)
 		insert = append(insert, '\n')
 		patched := make([]byte, 0, len(content)+len(insert))
 		patched = append(patched, content[:closePos]...)
@@ -486,9 +702,10 @@ foundPrevious:
 	}
 
 	insertPos := prev + 1
+	value := indentMultilineJSONValue(newValue, []byte("  "))
 	insert := append([]byte(",\n  "), encodedKey...)
 	insert = append(insert, []byte(": ")...)
-	insert = append(insert, newValue...)
+	insert = append(insert, value...)
 	patched := make([]byte, 0, len(content)+len(insert))
 	patched = append(patched, content[:insertPos]...)
 	patched = append(patched, insert...)

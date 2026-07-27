@@ -433,14 +433,11 @@ func TestPatchTopLevelJSONKeyPreserveFormatting_NestedValuesAndEscapedStrings(t 
 }
 
 func TestComputePatchedJSONContent_UsesRawFormattedObjectValue(t *testing.T) {
-	existing := []byte("{\n  \"mcpServers\": {\n    \"serena\": {\"command\": \"serena\"},\n    \"taskmaster\": {\"command\": \"npx\"},\n    \"obsidian\": {\"command\": \"obsidian-mcp\"}\n  },\n  \"pluginUsage\": {\"x\": 1}\n}\n")
+	existing := []byte("{\n  \"mcpServers\": {\n    \"serena\": {\"args\": [\"start\"], \"command\": \"serena\"},\n    \"taskmaster\": {\"command\": \"npx\"},\n    \"obsidian\": {\"args\": [\"vault\"], \"command\": \"obsidian-mcp\"}\n  },\n  \"pluginUsage\": {\"x\": 1}\n}\n")
 	keys := []resource.PartialKey{
 		{
-			Key: "mcpServers",
-			Value: `{ 
-    "serena": {"command": "serena"},
-    "obsidian": {"command": "obsidian-mcp"}
-  }`,
+			Key:   "mcpServers",
+			Value: "{\n  \"serena\": {\"command\": \"serena\", \"args\": [\"start\"]},\n  \"obsidian\": {\"command\": \"obsidian-mcp\", \"args\": [\"vault\"]}\n}",
 		},
 	}
 
@@ -452,11 +449,10 @@ func TestComputePatchedJSONContent_UsesRawFormattedObjectValue(t *testing.T) {
 	if strings.Contains(got, "taskmaster") {
 		t.Fatalf("taskmaster entry was not removed: %s", got)
 	}
-	if !strings.Contains(got, "{ \n    \"serena\":") {
-		t.Fatalf("formatted object value was compacted: %s", got)
-	}
-	if !strings.Contains(got, `  "pluginUsage": {"x": 1}`) {
-		t.Fatalf("unmanaged key changed or disappeared: %s", got)
+
+	want := "{\n  \"mcpServers\": {\n    \"serena\": {\"args\": [\"start\"], \"command\": \"serena\"},\n    \"obsidian\": {\"args\": [\"vault\"], \"command\": \"obsidian-mcp\"}\n  },\n  \"pluginUsage\": {\"x\": 1}\n}\n"
+	if got != want {
+		t.Fatalf("patched content mismatch\ngot:  %q\nwant: %q", got, want)
 	}
 }
 
