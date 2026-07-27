@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/wasilak/nim/pkg/planctx"
 	"github.com/wasilak/nim/pkg/provider"
 	"github.com/wasilak/nim/pkg/resource"
 )
@@ -382,6 +384,171 @@ func TestPartialFileProvider_Apply_MergeExisting(t *testing.T) {
 	// Existing unmanaged key should be preserved
 	if !containsSubstring(s, `"existing"`) {
 		t.Error("Unmanaged key was removed")
+	}
+}
+
+func TestPatchTopLevelJSONKeyPreserveFormatting_ExistingKeyPreservesOtherBytes(t *testing.T) {
+	existing := []byte("{\n  \"projects\": {\"/tmp\": {\"seen\": true}},\n  \"mcpServers\": {\"taskmaster\": {\"command\": \"npx\"}},\n  \"tengu_cache\": [1, 2, 3]\n}\n")
+	newValue := []byte("{\"serena\":{\"command\":\"serena\"}}")
+
+	got, err := PatchTopLevelJSONKeyPreserveFormatting(existing, "mcpServers", newValue)
+	if err != nil {
+		t.Fatalf("PatchTopLevelJSONKeyPreserveFormatting() error = %v", err)
+	}
+
+	want := "{\n  \"projects\": {\"/tmp\": {\"seen\": true}},\n  \"mcpServers\": {\"serena\":{\"command\":\"serena\"}},\n  \"tengu_cache\": [1, 2, 3]\n}\n"
+	if string(got) != want {
+		t.Fatalf("patched content mismatch\ngot:  %q\nwant: %q", string(got), want)
+	}
+}
+
+func TestPatchTopLevelJSONKeyPreserveFormatting_AddsMissingKeyAtEnd(t *testing.T) {
+	existing := []byte("{\n  \"alpha\": 1,\n  \"beta\": { \"nested\": true }\n}\n")
+	newValue := []byte("[1,2,3]")
+
+	got, err := PatchTopLevelJSONKeyPreserveFormatting(existing, "gamma", newValue)
+	if err != nil {
+		t.Fatalf("PatchTopLevelJSONKeyPreserveFormatting() error = %v", err)
+	}
+
+	want := "{\n  \"alpha\": 1,\n  \"beta\": { \"nested\": true },\n  \"gamma\": [1,2,3]\n}\n"
+	if string(got) != want {
+		t.Fatalf("patched content mismatch\ngot:  %q\nwant: %q", string(got), want)
+	}
+}
+
+func TestPatchTopLevelJSONKeyPreserveFormatting_NestedValuesAndEscapedStrings(t *testing.T) {
+	existing := []byte("{\n  \"mcpServers\": {\"keep\": [\"{not brace}\", \"quote \\\" ok\", {\"escaped\": \"\\\\\"}]},\n  \"after\": \"unchanged { }\"\n}")
+	newValue := []byte(`{"replacement":[{"text":"braces { } and quote \" and slash \\"}]}`)
+
+	got, err := PatchTopLevelJSONKeyPreserveFormatting(existing, "mcpServers", newValue)
+	if err != nil {
+		t.Fatalf("PatchTopLevelJSONKeyPreserveFormatting() error = %v", err)
+	}
+
+	want := "{\n  \"mcpServers\": {\"replacement\":[{\"text\":\"braces { } and quote \\\" and slash \\\\\"}]},\n  \"after\": \"unchanged { }\"\n}"
+	if string(got) != want {
+		t.Fatalf("patched content mismatch\ngot:  %q\nwant: %q", string(got), want)
+	}
+}
+
+func TestComputePatchedJSONContent_UsesRawFormattedObjectValue(t *testing.T) {
+	existing := []byte("{\n  \"mcpServers\": {\n    \"serena\": {\"command\": \"serena\"},\n    \"taskmaster\": {\"command\": \"npx\"},\n    \"obsidian\": {\"command\": \"obsidian-mcp\"}\n  },\n  \"pluginUsage\": {\"x\": 1}\n}\n")
+	keys := []resource.PartialKey{
+		{
+			Key: "mcpServers",
+			Value: `{ 
+    "serena": {"command": "serena"},
+    "obsidian": {"command": "obsidian-mcp"}
+  }`,
+		},
+	}
+
+	got, err := computePatchedJSONContent(existing, keys)
+	if err != nil {
+		t.Fatalf("computePatchedJSONContent() error = %v", err)
+	}
+
+	if strings.Contains(got, "taskmaster") {
+		t.Fatalf("taskmaster entry was not removed: %s", got)
+	}
+	if !strings.Contains(got, "{ \n    \"serena\":") {
+		t.Fatalf("formatted object value was compacted: %s", got)
+	}
+	if !strings.Contains(got, `  "pluginUsage": {"x": 1}`) {
+		t.Fatalf("unmanaged key changed or disappeared: %s", got)
+	}
+}
+
+func TestPartialFileProvider_Apply_JSONPreservesClaudeRuntimeFields(t *testing.T) {
+	p := NewPartialFileProvider()
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "claude.json")
+	existing := "{\n  \"projects\": {\"/repo\": {\"history\": [\"keep\"]}},\n  \"cachedExperimentData\": {\"exp\": true},\n  \"mcpServers\": {\n    \"serena\": {\"command\": \"serena\"},\n    \"taskmaster\": {\"command\": \"npx\", \"args\": [\"-y\", \"task-master-ai@latest\"], \"env\": {\"TASK_MASTER_TOOLS\": \"standard\"}},\n    \"obsidian\": {\"command\": \"obsidian-mcp\"}\n  },\n  \"pluginUsage\": {\"x\": 1},\n  \"tengu_runtime\": [\"do-not-touch\"]\n}\n"
+	if err := os.WriteFile(path, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	addition := provider.GroupAddition{
+		Kind:  resource.KindManagedFilePartial,
+		Group: "claude-code-mcp",
+		Items: []resource.ResourceItem{{Name: "mcpServers"}},
+		RawSpec: resource.ManagedFilePartialSpec{
+			Path: path,
+			Keys: []resource.PartialKey{
+				{Key: "mcpServers", Value: `{"serena":{"command":"serena"},"obsidian":{"command":"obsidian-mcp"}}`},
+			},
+		},
+	}
+
+	for _, result := range p.applyAddition(addition) {
+		if result.Err != nil {
+			t.Fatalf("applyAddition() unexpected error = %v", result.Err)
+		}
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read patched file: %v", err)
+	}
+	s := string(content)
+	if strings.Contains(s, "task-master-ai") {
+		t.Fatalf("taskmaster entry was not removed: %s", s)
+	}
+	for _, unchanged := range []string{
+		`  "projects": {"/repo": {"history": ["keep"]}},`,
+		`  "cachedExperimentData": {"exp": true},`,
+		`  "pluginUsage": {"x": 1},`,
+		`  "tengu_runtime": ["do-not-touch"]`,
+	} {
+		if !strings.Contains(s, unchanged) {
+			t.Fatalf("runtime/cache bytes changed or disappeared; missing %q in %s", unchanged, s)
+		}
+	}
+}
+
+func TestPartialFileProvider_Reconcile_DiffOnlyChangesManagedJSONKey(t *testing.T) {
+	p := NewPartialFileProvider()
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "claude.json")
+	existing := "{\n  \"projects\": {\"/repo\": {\"history\": [\"keep\"]}},\n  \"mcpServers\": {\"taskmaster\": {\"command\": \"npx\"}},\n  \"pluginUsage\": {\"x\": 1}\n}\n"
+	if err := os.WriteFile(path, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.WithValue(context.Background(), planctx.PlanShowDiffKey, true)
+	desired := []resource.ResourceGroup[any]{
+		{
+			Kind:  resource.KindManagedFilePartial,
+			Name:  "claude-code-mcp",
+			Items: []resource.ResourceItem{{Name: "mcpServers"}},
+			RawSpec: resource.ManagedFilePartialSpec{
+				Path: path,
+				Keys: []resource.PartialKey{{Key: "mcpServers", Value: `{"serena":{"command":"serena"}}`}},
+			},
+		},
+	}
+
+	plan := p.Reconcile(ctx, desired, []provider.ResourceState{{Kind: resource.KindManagedFilePartial, Group: "claude-code-mcp"}})
+	if len(plan.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", plan.Errors)
+	}
+	if len(plan.Modifications) != 1 || len(plan.Modifications[0].Changes) != 1 {
+		t.Fatalf("expected one modification with one change, got %#v", plan.Modifications)
+	}
+
+	change := plan.Modifications[0].Changes[0]
+	if change.OldContent != existing {
+		t.Fatalf("OldContent mismatch")
+	}
+	if !strings.Contains(change.NewContent, `  "projects": {"/repo": {"history": ["keep"]}},`) {
+		t.Fatalf("projects bytes changed or disappeared: %s", change.NewContent)
+	}
+	if !strings.Contains(change.NewContent, `  "pluginUsage": {"x": 1}`) {
+		t.Fatalf("pluginUsage bytes changed or disappeared: %s", change.NewContent)
+	}
+	if strings.Contains(change.NewContent, "taskmaster") {
+		t.Fatalf("taskmaster entry was not removed: %s", change.NewContent)
 	}
 }
 

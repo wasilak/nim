@@ -97,7 +97,7 @@ func (p *PartialFileProvider) Reconcile(ctx context.Context,
 
 		// Determine if change is needed
 		needsUpdate := p.keysNeedUpdate(existingKeys, desiredKeys)
-		
+
 		if !existsInState && !fileExists {
 			// New file and new resource
 			plan.Additions = append(plan.Additions, provider.GroupAddition{
@@ -124,7 +124,7 @@ func (p *PartialFileProvider) Reconcile(ctx context.Context,
 					NewState: resource.ItemState{Name: item.Name},
 				})
 			}
-			
+
 			plan.Modifications = append(plan.Modifications, provider.GroupModification{
 				Kind:    group.Kind,
 				Group:   group.Name,
@@ -187,11 +187,19 @@ func (p *PartialFileProvider) Reconcile(ctx context.Context,
 			path := expandPath(spec.Path)
 			existing := make(map[string]any)
 			oldContent := ""
+			var oldData []byte
 			if data, err := os.ReadFile(path); err == nil {
+				oldData = data
 				oldContent = string(data)
 				_ = unmarshalByFormat(data, format, &existing)
 			}
-			newContent, err := computeMergedContent(existing, spec.Keys, format)
+			var newContent string
+			var err error
+			if format == formatJSON && len(oldData) > 0 {
+				newContent, err = computePatchedJSONContent(oldData, spec.Keys)
+			} else {
+				newContent, err = computeMergedContent(existing, spec.Keys, format)
+			}
 			if err != nil {
 				continue
 			}
@@ -274,6 +282,220 @@ func marshalByFormat(v any, format fileFormat) ([]byte, error) {
 	}
 }
 
+// PatchTopLevelJSONKeyPreserveFormatting replaces or appends a top-level JSON
+// key without reserializing the rest of the document.
+func PatchTopLevelJSONKeyPreserveFormatting(content []byte, key string, newValue []byte) ([]byte, error) {
+	if !json.Valid(newValue) {
+		return nil, fmt.Errorf("invalid JSON value for key %q", key)
+	}
+
+	pos := skipJSONWhitespace(content, 0)
+	if pos >= len(content) || content[pos] != '{' {
+		return nil, fmt.Errorf("JSON document must be an object")
+	}
+	pos++
+
+	for {
+		pos = skipJSONWhitespace(content, pos)
+		if pos >= len(content) {
+			return nil, fmt.Errorf("unterminated JSON object")
+		}
+		if content[pos] == '}' {
+			return appendTopLevelJSONKey(content, pos, key, newValue)
+		}
+		if content[pos] != '"' {
+			return nil, fmt.Errorf("expected object key at byte %d", pos)
+		}
+
+		keyStart := pos
+		keyEnd, err := scanJSONString(content, keyStart)
+		if err != nil {
+			return nil, err
+		}
+		var currentKey string
+		if err := json.Unmarshal(content[keyStart:keyEnd], &currentKey); err != nil {
+			return nil, fmt.Errorf("decode JSON object key at byte %d: %w", keyStart, err)
+		}
+
+		pos = skipJSONWhitespace(content, keyEnd)
+		if pos >= len(content) || content[pos] != ':' {
+			return nil, fmt.Errorf("expected colon after key %q", currentKey)
+		}
+		valueStart := skipJSONWhitespace(content, pos+1)
+		valueEnd, err := scanJSONValue(content, valueStart)
+		if err != nil {
+			return nil, fmt.Errorf("scan value for key %q: %w", currentKey, err)
+		}
+
+		if currentKey == key {
+			patched := make([]byte, 0, len(content)-(valueEnd-valueStart)+len(newValue))
+			patched = append(patched, content[:valueStart]...)
+			patched = append(patched, newValue...)
+			patched = append(patched, content[valueEnd:]...)
+			return patched, nil
+		}
+
+		pos = skipJSONWhitespace(content, valueEnd)
+		if pos >= len(content) {
+			return nil, fmt.Errorf("unterminated JSON object after key %q", currentKey)
+		}
+		switch content[pos] {
+		case ',':
+			pos++
+		case '}':
+			return appendTopLevelJSONKey(content, pos, key, newValue)
+		default:
+			return nil, fmt.Errorf("expected comma or object end after key %q", currentKey)
+		}
+	}
+}
+
+func skipJSONWhitespace(content []byte, pos int) int {
+	for pos < len(content) {
+		switch content[pos] {
+		case ' ', '\n', '\r', '\t':
+			pos++
+		default:
+			return pos
+		}
+	}
+	return pos
+}
+
+func scanJSONString(content []byte, pos int) (int, error) {
+	if pos >= len(content) || content[pos] != '"' {
+		return 0, fmt.Errorf("expected string at byte %d", pos)
+	}
+	for i := pos + 1; i < len(content); i++ {
+		switch content[i] {
+		case '\\':
+			i++
+			if i >= len(content) {
+				return 0, fmt.Errorf("unterminated escape in string at byte %d", pos)
+			}
+		case '"':
+			return i + 1, nil
+		}
+	}
+	return 0, fmt.Errorf("unterminated string at byte %d", pos)
+}
+
+func scanJSONValue(content []byte, pos int) (int, error) {
+	pos = skipJSONWhitespace(content, pos)
+	if pos >= len(content) {
+		return 0, fmt.Errorf("expected value")
+	}
+
+	switch content[pos] {
+	case '"':
+		return scanJSONString(content, pos)
+	case '{', '[':
+		return scanJSONCompositeValue(content, pos)
+	case 't', 'f', 'n':
+		return scanJSONLiteral(content, pos)
+	default:
+		return scanJSONNumber(content, pos)
+	}
+}
+
+func scanJSONCompositeValue(content []byte, pos int) (int, error) {
+	stack := []byte{content[pos]}
+	for i := pos + 1; i < len(content); i++ {
+		switch content[i] {
+		case '"':
+			end, err := scanJSONString(content, i)
+			if err != nil {
+				return 0, err
+			}
+			i = end - 1
+		case '{', '[':
+			stack = append(stack, content[i])
+		case '}', ']':
+			if len(stack) == 0 {
+				return 0, fmt.Errorf("unexpected closing delimiter at byte %d", i)
+			}
+			open := stack[len(stack)-1]
+			if open == '{' && content[i] != '}' || open == '[' && content[i] != ']' {
+				return 0, fmt.Errorf("mismatched closing delimiter at byte %d", i)
+			}
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 {
+				return i + 1, nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("unterminated JSON value at byte %d", pos)
+}
+
+func scanJSONLiteral(content []byte, pos int) (int, error) {
+	for _, literal := range []string{"true", "false", "null"} {
+		end := pos + len(literal)
+		if end <= len(content) && string(content[pos:end]) == literal {
+			return end, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid literal at byte %d", pos)
+}
+
+func scanJSONNumber(content []byte, pos int) (int, error) {
+	end := pos
+	for end < len(content) {
+		switch content[end] {
+		case ' ', '\n', '\r', '\t', ',', '}', ']':
+			if end == pos || !json.Valid(content[pos:end]) {
+				return 0, fmt.Errorf("invalid number at byte %d", pos)
+			}
+			return end, nil
+		default:
+			end++
+		}
+	}
+	if end == pos || !json.Valid(content[pos:end]) {
+		return 0, fmt.Errorf("invalid number at byte %d", pos)
+	}
+	return end, nil
+}
+
+func appendTopLevelJSONKey(content []byte, closePos int, key string, newValue []byte) ([]byte, error) {
+	encodedKey, err := json.Marshal(key)
+	if err != nil {
+		return nil, fmt.Errorf("encode JSON key %q: %w", key, err)
+	}
+
+	prev := closePos - 1
+	for prev >= 0 {
+		switch content[prev] {
+		case ' ', '\n', '\r', '\t':
+			prev--
+		default:
+			goto foundPrevious
+		}
+	}
+
+foundPrevious:
+	if prev >= 0 && content[prev] == '{' {
+		insert := append([]byte("\n  "), encodedKey...)
+		insert = append(insert, []byte(": ")...)
+		insert = append(insert, newValue...)
+		insert = append(insert, '\n')
+		patched := make([]byte, 0, len(content)+len(insert))
+		patched = append(patched, content[:closePos]...)
+		patched = append(patched, insert...)
+		patched = append(patched, content[closePos:]...)
+		return patched, nil
+	}
+
+	insertPos := prev + 1
+	insert := append([]byte(",\n  "), encodedKey...)
+	insert = append(insert, []byte(": ")...)
+	insert = append(insert, newValue...)
+	patched := make([]byte, 0, len(content)+len(insert))
+	patched = append(patched, content[:insertPos]...)
+	patched = append(patched, insert...)
+	patched = append(patched, content[insertPos:]...)
+	return patched, nil
+}
+
 // normalizePartialValue tries to JSON-parse a string value so that JSON objects
 // and arrays stored as strings round-trip correctly when written to JSON/YAML files.
 // Primitive JSON types (numbers, booleans, null) are left as-is to preserve the
@@ -306,6 +528,33 @@ func computeMergedContent(existing map[string]any, keys []resource.PartialKey, f
 		return "", err
 	}
 	return string(data), nil
+}
+
+func computePatchedJSONContent(existing []byte, keys []resource.PartialKey) (string, error) {
+	content := existing
+	for _, pk := range keys {
+		value, err := partialValueJSONBytes(pk.Value)
+		if err != nil {
+			return "", fmt.Errorf("prepare JSON value for key %q: %w", pk.Key, err)
+		}
+		content, err = PatchTopLevelJSONKeyPreserveFormatting(content, pk.Key, value)
+		if err != nil {
+			return "", fmt.Errorf("patch key %q: %w", pk.Key, err)
+		}
+	}
+	return string(content), nil
+}
+
+func partialValueJSONBytes(value string) ([]byte, error) {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') && json.Valid([]byte(trimmed)) {
+		return []byte(trimmed), nil
+	}
+	data, err := json.Marshal(normalizePartialValue(value))
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // keysNeedUpdate checks if desired keys differ from existing.
@@ -397,7 +646,11 @@ func (p *PartialFileProvider) applySpec(spec resource.ManagedFilePartialSpec, ki
 
 	// Read existing file or start with empty map
 	content := make(map[string]any)
+	var existingData []byte
+	fileExists := false
 	if data, err := os.ReadFile(path); err == nil {
+		existingData = data
+		fileExists = true
 		if err := unmarshalByFormat(data, format, &content); err != nil {
 			for _, item := range items {
 				results = append(results, provider.ApplyItemResult{
@@ -423,14 +676,24 @@ func (p *PartialFileProvider) applySpec(spec resource.ManagedFilePartialSpec, ki
 		return results
 	}
 
-	// Merge declared keys — try JSON-parsing string values so that JSON objects
-	// are stored as structured data rather than raw strings.
-	for _, pk := range spec.Keys {
-		content[pk.Key] = normalizePartialValue(pk.Value)
-	}
+	var output []byte
+	var err error
+	if format == formatJSON && fileExists {
+		patched, patchErr := computePatchedJSONContent(existingData, spec.Keys)
+		if patchErr != nil {
+			err = patchErr
+		} else {
+			output = []byte(patched)
+		}
+	} else {
+		// Merge declared keys — try JSON-parsing string values so that JSON objects
+		// are stored as structured data rather than raw strings.
+		for _, pk := range spec.Keys {
+			content[pk.Key] = normalizePartialValue(pk.Value)
+		}
 
-	// Marshal and write
-	output, err := marshalByFormat(content, format)
+		output, err = marshalByFormat(content, format)
+	}
 	if err != nil {
 		for _, item := range items {
 			results = append(results, provider.ApplyItemResult{
