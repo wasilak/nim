@@ -10,7 +10,7 @@ require (
 	github.com/briandowns/spinner v1.23.2
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/martinohmann/go-difflib v1.1.0
-	github.com/mattn/go-runewidth v0.0.27
+	github.com/mattn/go-runewidth v0.0.28
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cobra v1.10.2
