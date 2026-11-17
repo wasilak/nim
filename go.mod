@@ -12,7 +12,7 @@ require (
 	github.com/martinohmann/go-difflib v1.1.0
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/minio/minio-go/v7 v7.4.1
-	github.com/sergi/go-diff v1.4.4
+	github.com/sergi/go-diff v1.4.5
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
